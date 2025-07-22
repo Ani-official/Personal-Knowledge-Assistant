@@ -86,7 +86,7 @@ async def auth_google_callback(request: Request, db: AsyncSession = Depends(get_
     jwt_token = create_access_token({"sub": user.email})
 
     # ✅ Set both token and auth_type cookies
-    response = RedirectResponse(url="http://localhost:3000/dashboard")
+    response = RedirectResponse(url=settings.FRONTEND_DASHBOARD_URL)
     response.set_cookie(
         key="token",
         value=jwt_token,

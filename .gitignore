@@ -56,3 +56,6 @@ frontend/pnpm-debug.log*
 
 # Ignore Chroma local vector DB
 backend/chroma_db/
+
+# Ignore zip archives
+*.zip
