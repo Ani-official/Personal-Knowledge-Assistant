@@ -1,0 +1,58 @@
+# ────────────────
+# Python backend
+# ────────────────
+backend/__pycache__/
+backend/**/*.py[cod]
+backend/venv/
+backend/.venv/
+backend/.env
+backend/.env.*
+
+
+
+# Logs / DB / Runtime
+backend/*.log
+backend/logs/
+backend/*.sqlite3
+backend/*.db
+
+# Alembic cache
+backend/alembic/versions/__pycache__/
+
+# Python tools
+backend/.mypy_cache/
+backend/.pytest_cache/
+backend/.ruff_cache/
+
+# ────────────────
+# Frontend (React / Next / Vite)
+# ────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.production.local
+frontend/.cache/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/pnpm-debug.log*
+
+# ────────────────
+# Global
+# ────────────────
+*.log
+*.lock
+*.pid
+*.egg-info/
+*.egg
+.DS_Store
+.idea/
+.vscode/
+.env
+.env.*
+
+# Ignore Chroma local vector DB
+backend/chroma_db/
