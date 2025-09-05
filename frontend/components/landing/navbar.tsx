@@ -16,7 +16,7 @@ export default function Navbar() {
         <Link href="/" className="text-xl font-bold">KnowAI</Link>
         <div className="flex gap-5 items-center">
           <Link href="#features" className="text-sm font-medium">Features</Link>
-          <Link href="#pricing" className="text-sm font-medium">Pricing</Link>
+          <Link href="#faq" className="text-sm font-medium">FAQ</Link>
           <Link href="/dashboard" className="text-sm font-medium">Dashboard</Link>
           <div className="flex gap-4">
             {/* ✅ Hide login button if already authenticated */}

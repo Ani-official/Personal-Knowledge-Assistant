@@ -1,7 +1,10 @@
+# rag.py
 import os
 import re
+import json
 import asyncio
 import logging
+from typing import AsyncGenerator, List
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 from sqlalchemy import update
@@ -9,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from concurrent.futures import ThreadPoolExecutor
 
+import httpx
 import chromadb
 from app.utils.compression import decompress_text
 from app.models.document import Document
@@ -35,8 +39,8 @@ chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_or_create_collection(name="user_notes")
 
 
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50):
-    chunks = []
+def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
+    chunks: List[str] = []
     start = 0
     while start < len(text):
         end = start + chunk_size
@@ -45,7 +49,7 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50):
     return chunks
 
 
-async def encode_chunks_async(chunks):
+async def encode_chunks_async(chunks: List[str]):
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         executor,
@@ -56,6 +60,9 @@ async def encode_chunks_async(chunks):
 
 
 async def embed_and_store(compressed_text: bytes, doc_id: str):
+    """
+    Decompress, chunk, embed and store in Chroma. Offloads CPU/blocking calls to threadpool.
+    """
     try:
         text = decompress_text(compressed_text)
         if not text:
@@ -67,11 +74,17 @@ async def embed_and_store(compressed_text: bytes, doc_id: str):
             logger.warning(f"[Empty] Chunking failed for doc_id={doc_id}")
             return
 
+        # encode in executor (already implemented above)
         embeddings = await encode_chunks_async(chunks)
         ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
         metadata = [{"source": doc_id, "chunk": i} for i in range(len(chunks))]
 
-        collection.add(documents=chunks, embeddings=embeddings, ids=ids, metadatas=metadata)
+        # collection.add can be blocking — run in executor to avoid blocking event loop
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            executor,
+            lambda: collection.add(documents=chunks, embeddings=embeddings, ids=ids, metadatas=metadata)
+        )
 
         async with AsyncSessionLocal() as session:
             await session.execute(
@@ -85,8 +98,13 @@ async def embed_and_store(compressed_text: bytes, doc_id: str):
         logger.exception(f"[❌] Failed to embed/store for doc_id={doc_id}: {e}")
 
 
-def get_context_chunks(doc_id: str, query: str, top_k: int = 3):
+def get_context_chunks(doc_id: str, query: str, top_k: int = 3) -> List[str]:
+    """
+    Retrieve top-k most relevant chunks for doc_id using the sentence-transformer model + Chroma.
+    """
     try:
+        # NOTE: model.encode here is synchronous; for single-query it's usually fine but
+        # consider offloading if you notice blocking
         query_embedding = model.encode([query])[0].tolist()
         results = collection.query(
             query_embeddings=[query_embedding],
@@ -100,35 +118,107 @@ def get_context_chunks(doc_id: str, query: str, top_k: int = 3):
         return []
 
 
-def query_llm(question: str, context_chunks: list, model: str = "meta-llama/llama-3.3-70b-instruct:free", api_key: str) -> str:
-    import httpx
 
-    if not api_key or not api_key.strip():
-        return "[Error] API key is required and cannot be empty."
+async def query_llm(
+    question: str,
+    chunks: List[str],
+    api_key: str,
+    model_name: str
+) -> AsyncGenerator[str, None]:
+    """
+    Calls OpenRouter (or other provider that returns OpenAI-style streaming events),
+    normalizes their streaming lines and yields OpenAI-style SSE JSON events.
 
-    context = "\n\n".join(context_chunks)
-    prompt = (
-        "You are a helpful assistant. Use only the context provided between triple backticks.\n"
-        f"```\n{context}\n```\n"
-        f"Question: {question}\nAnswer:"
-    )
+    Each yielded string is an SSE event, e.g.
+      data: {"choices":[{"delta":{"content":"...token..."}}]}\n\n
+    """
+    url = "https://openrouter.ai/api/v1/chat/completions"
 
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        # "HTTP-Referer": "http://localhost",
-        "X-Title": "PersonalKnowledgeAssistant"
     }
 
     payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}]
+        "model": model_name,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are an AI assistant. Use the provided context to answer the question."
+            },
+            {
+                "role": "user",
+                "content": f"Context: {' '.join(chunks)}\n\nQuestion: {question}"
+            },
+        ],
+        "stream": True,
     }
 
-    try:
-        response = httpx.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        logger.exception(f"[❌] LLM request failed: {e}")
-        return "[Error] Failed to get LLM response"
+    # ✅ Let frontend know AI has started typing immediately
+    yield "data: {\"choices\":[{\"delta\":{\"content\":\"\"}}]}\n\n"
+
+    async with httpx.AsyncClient(timeout=None) as client:
+        async with client.stream("POST", url, headers=headers, json=payload) as response:
+            if response.status_code < 200 or response.status_code >= 300:
+                try:
+                    body_text = await response.aread()
+                    err_text = body_text.decode() if isinstance(body_text, (bytes, bytearray)) else str(body_text)
+                except Exception:
+                    err_text = f"HTTP {response.status_code} (no body)"
+                error_event = {"error": f"Upstream API error: {err_text}"}
+                yield f"data: {json.dumps(error_event)}\n\n"
+                return
+
+            async for line in response.aiter_lines():
+                logger.debug("LLM STREAM LINE: %s", line)
+
+                if not line or not line.startswith("data: "):
+                    continue
+
+                data = line[len("data: "):].strip()
+
+                if data == "[DONE]":
+                    yield "data: [DONE]\n\n"
+                    break
+
+                try:
+                    parsed = json.loads(data)
+
+                    content = None
+                    choices = parsed.get("choices") or []
+                    if choices:
+                        first = choices[0]
+                        delta = first.get("delta") or {}
+                        if isinstance(delta, dict) and "content" in delta:
+                            content = delta["content"]
+                        else:
+                            message = first.get("message") or {}
+                            if isinstance(message, dict) and "content" in message:
+                                val = message["content"]
+                                if isinstance(val, str):
+                                    content = val
+                                elif isinstance(val, dict) and "text" in val:
+                                    content = val["text"]
+
+                    if content is None:
+                        if "text" in parsed and isinstance(parsed["text"], str):
+                            content = parsed["text"]
+                        elif "content" in parsed and isinstance(parsed["content"], str):
+                            content = parsed["content"]
+
+                    if content:
+                        event = {"choices": [{"delta": {"content": content}}]}
+                        yield f"data: {json.dumps(event)}\n\n"
+
+                        # ✅ Slow down slightly so frontend streams smoothly
+                        await asyncio.sleep(0.02)
+
+                except json.JSONDecodeError:
+                    logger.debug("Failed to json-decode stream fragment; skipping.")
+                    continue
+                except Exception as e:
+                    logger.exception("Error processing stream chunk: %s", e)
+                    continue
+
+    # ✅ Safety net
+    yield "data: [DONE]\n\n"

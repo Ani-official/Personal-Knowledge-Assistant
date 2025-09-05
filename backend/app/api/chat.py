@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,21 +28,19 @@ async def chat_with_doc(
     if not chunks or not isinstance(chunks, list):
         raise HTTPException(status_code=404, detail="No relevant context found")
 
+    # Determine API key
     final_key = api_key
-
     if not final_key:
         result = await db.execute(select(UserAPIKey).where(UserAPIKey.email == user))
         user_key_row = result.scalar_one_or_none()
         if user_key_row:
             final_key = decrypt_key(user_key_row.encrypted_key)
 
-    try:
-        answer = query_llm(question, chunks, model, api_key=final_key)
-    except Exception as e:
-        print("❌ LLM Error:", str(e))
-        raise HTTPException(status_code=500, detail="Failed to generate response from LLM")
+    if not final_key:
+        raise HTTPException(status_code=403, detail="No API key found")
 
-    if not answer or not isinstance(answer, str):
-        raise HTTPException(status_code=500, detail="Model failed to generate a valid response")
-
-    return {"answer": answer, "context": chunks}
+    # Directly stream from query_llm
+    return StreamingResponse(
+        query_llm(question, chunks, final_key, model),
+        media_type="text/event-stream"
+    )

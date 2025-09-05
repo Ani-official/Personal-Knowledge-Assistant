@@ -44,7 +44,7 @@ export default function ChatPanel({ docId }: { docId: string }) {
     const userMessage = { type: "user" as const, text: input }
     setMessages((prev) => [...prev, userMessage])
     setLoading(true)
-    setAiTyping("")
+    setAiTyping("AI is typing...")
 
     try {
       const token = localStorage.getItem("token")
@@ -55,7 +55,7 @@ export default function ChatPanel({ docId }: { docId: string }) {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        credentials: token ? "omit" : "include", // for OAuth users
+        credentials: token ? "omit" : "include",
         body: JSON.stringify({
           doc_id: docId,
           question: input,
@@ -63,28 +63,54 @@ export default function ChatPanel({ docId }: { docId: string }) {
         }),
       })
 
-      const data = await res.json()
-      const fullText = data?.answer
+      if (!res.body) throw new Error("No response body from server.")
 
-      if (!fullText || typeof fullText !== "string") {
-        throw new Error("Invalid answer format from server.")
-      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
 
-      // Simulate typing effect
-      let index = 0
-      const interval = setInterval(() => {
-        if (index < fullText.length) {
-          setAiTyping((prev) => prev + fullText[index])
-          index++
-        } else {
-          clearInterval(interval)
-          setMessages((prev) => [...prev, { type: "ai", text: fullText }])
-          setAiTyping("")
+      let aiResponse = ""
+      setAiTyping("") // clear placeholder once real stream starts
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const chunk = decoder.decode(value, { stream: true })
+
+        const lines = chunk.split("\n")
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue
+          const data = line.slice(6).trim()
+          if (!data) continue
+
+          if (data === "[DONE]") {
+            // finalize response
+            setMessages((prev) => [...prev, { type: "ai", text: aiResponse }])
+            setAiTyping("")
+            return
+          }
+
+          try {
+            const parsed = JSON.parse(data)
+            const delta = parsed?.choices?.[0]?.delta?.content
+            if (delta) {
+              aiResponse += delta
+              // Add slight delay for natural typing effect
+              await new Promise((r) => setTimeout(r, 25))
+              setAiTyping((prev) => prev + delta)
+            }
+          } catch {
+            // fallback: append raw text if not JSON
+            aiResponse += data
+            setAiTyping((prev) => prev + data)
+          }
         }
-      }, 20)
+      }
     } catch (err) {
       console.error("Chat error:", err)
-      setMessages((prev) => [...prev, { type: "ai", text: "❌ Server error. Please try again." }])
+      setMessages((prev) => [
+        ...prev,
+        { type: "ai", text: "❌ Server error. Please try again." },
+      ])
       setAiTyping("")
     } finally {
       setLoading(false)
@@ -123,9 +149,7 @@ export default function ChatPanel({ docId }: { docId: string }) {
               }`}
             >
               <div className="prose prose-sm max-w-none dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {msg.text}
-                </ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
               </div>
             </div>
             {msg.type === "user" && <Avatar type="user" />}
@@ -137,9 +161,7 @@ export default function ChatPanel({ docId }: { docId: string }) {
             <Avatar type="ai" />
             <div className="max-w-[85%] sm:max-w-[75%] px-3 sm:px-4 py-2 sm:py-3 rounded-2xl rounded-bl-md text-sm shadow-sm bg-muted text-foreground">
               <div className="prose prose-sm max-w-none dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {aiTyping}
-                </ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiTyping}</ReactMarkdown>
               </div>
             </div>
           </div>
