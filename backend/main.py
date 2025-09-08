@@ -16,7 +16,7 @@ app.add_middleware(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # frontend domain
+    allow_origins=["https://knowai-doc.vercel.app/"],  # frontend domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

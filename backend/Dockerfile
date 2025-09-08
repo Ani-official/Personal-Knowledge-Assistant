@@ -1,17 +1,42 @@
-# Use a lightweight Python base image
-FROM python:3.11-slim
+# Stage 1: Build dependencies
+FROM python:3.11-slim AS builder
 
-# Set working directory inside container
 WORKDIR /app
 
-# Copy backend files into the container
+# Install system deps for building
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential libpq-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip
+RUN pip install --no-cache-dir --upgrade pip
+
+# Copy requirements and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# Stage 2: Final slim image
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Create non-root user
+RUN useradd -m appuser
+
+# Copy installed packages from builder
+COPY --from=builder /install /usr/local
+
+# Copy backend code
 COPY . .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Switch to non-root
+USER appuser
 
-# Expose the port FastAPI will run on
+# Expose FastAPI port
 EXPOSE 8000
 
-# Start the FastAPI server (adjust if main.py has a different name)
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Healthcheck (optional, but good practice)
+HEALTHCHECK CMD curl --fail http://localhost:8000/health || exit 1
+
+# Run with Gunicorn + Uvicorn workers
+CMD ["gunicorn", "main:app", "-k", "uvicorn.workers.UvicornWorker", "-w", "4", "-b", "0.0.0.0:8000"]
