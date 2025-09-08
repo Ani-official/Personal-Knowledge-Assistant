@@ -1,54 +1,16 @@
-# # Core framework
-# fastapi==0.116.1
-# uvicorn==0.35.0  # Used for running FastAPI apps
-
-# # ORM and database
-# sqlalchemy==2.0.41
-# alembic==1.16.4  # For database migrations
-
-# # Async Postgres driver
-# asyncpg==0.30.0
-
-# # Auth and security
-# authlib==1.6.1
-# python-jose==3.5.0
-# passlib[bcrypt]==1.7.4
-# cryptography==45.0.5
-
-# # Env and config management
-# python-dotenv==1.1.1
-# pydantic==2.11.7
-# pydantic-settings==2.10.1
-
-# # File handling
-# aiofiles==24.1.0
-# python-multipart==0.0.20
-
-# # PDF processing
-# pdfminer.six==20250506
-
-# # HTTP and utility
-# httpx==0.28.1
-# markdown==3.8.2
-
-# # AI/NLP features
-# chromadb==1.0.15
-# sentence-transformers==5.0.0
-
-# # Starlette is a FastAPI dependency but used directly in your code too
-# starlette==0.46.2
-
 # Core framework
 fastapi==0.116.1
 uvicorn==0.35.0
-gunicorn==23.0.0 # For running FastAPI apps in production
+gunicorn==23.0.0
+
+# Starlette (needed by FastAPI, plus SessionMiddleware)
+starlette==0.46.2
+itsdangerous==2.2.0
 
 # ORM and database
 sqlalchemy==2.0.41
 alembic==1.16.4
-
-# Async Postgres driver
-asyncpg==0.30.0
+asyncpg==0.30.0   # Async Postgres driver
 
 # Auth and security
 authlib==1.6.1
@@ -75,10 +37,5 @@ markdown==3.8.2
 # AI/NLP features
 chromadb==1.0.15
 sentence-transformers==5.0.0
-
-# Force CPU-only torch (lightweight, works with sentence-transformers)
 torch==2.4.0+cpu
 --extra-index-url https://download.pytorch.org/whl/cpu
-
-# Starlette
-starlette==0.46.2
