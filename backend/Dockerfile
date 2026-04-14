@@ -52,5 +52,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\", \"8000\")}/health')" || exit 1
 
-# One worker is appropriate for Render free instances with limited RAM/CPU.
-CMD ["sh", "-c", "gunicorn main:app -k uvicorn.workers.UvicornWorker -w 1 --timeout 120 --graceful-timeout 30 --keep-alive 30 -b 0.0.0.0:${PORT:-8000}"]
+# On Render free tier, run migrations at startup before booting the app.
+CMD ["sh", "-c", "alembic upgrade head && gunicorn main:app -k uvicorn.workers.UvicornWorker -w 1 --timeout 120 --graceful-timeout 30 --keep-alive 30 -b 0.0.0.0:${PORT:-8000}"]
