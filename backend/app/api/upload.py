@@ -1,7 +1,9 @@
-from fastapi import APIRouter, File, UploadFile, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, File, UploadFile, BackgroundTasks, Depends, HTTPException, Request
 import os
 import tempfile
 import aiofiles
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from app.utils.parser import parse_pdf, parse_markdown
 from app.services.rag import embed_and_store
 from app.utils.compression import compress_text
@@ -17,20 +19,24 @@ import uuid
 import time
 
 router = APIRouter()
-CHUNK_SIZE = 1024 * 1024  # 1MB
+limiter = Limiter(key_func=get_remote_address)
+
+CHUNK_SIZE = 1024 * 1024  # 1MB read chunks
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB max upload size
+
 
 @router.post("/")
+@limiter.limit("5/minute")
 async def upload_file(
+    request: Request,
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
     user: str = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-     # ✅ Guard: check if file is valid
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="File is missing or invalid")
 
-    # ✅ Guard: check if user is valid
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized user")
 
@@ -44,6 +50,13 @@ async def upload_file(
             while chunk := await file.read(CHUNK_SIZE):
                 await temp_file.write(chunk)
 
+        # Enforce file size limit
+        if os.path.getsize(temp_file_path) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail="File too large. Maximum size is 10MB.",
+            )
+
         if filename.endswith(".pdf"):
             text = parse_pdf(temp_file_path)
         elif filename.endswith(".md"):
@@ -56,17 +69,16 @@ async def upload_file(
         doc_id = str(uuid.uuid4())
         compressed_text = compress_text(text)
 
-        # 🧠 Get user subscription from DB
+        # Get user subscription from DB
         user_result = await db.execute(select(User).where(User.email == user))
         user_obj = user_result.scalar_one_or_none()
         if not user_obj:
             raise HTTPException(status_code=404, detail="User not found")
 
-
-        # 🎯 Determine upload limit by plan
+        # Determine upload limit by plan
         upload_limit = 3 if user_obj.subscription == SubscriptionLevel.free else float("inf")
 
-        # 🔢 Count user uploads
+        # Count user uploads
         doc_count_result = await db.execute(
             select(func.count()).select_from(Document).where(Document.user_email == user)
         )
@@ -75,7 +87,7 @@ async def upload_file(
         if upload_count >= upload_limit:
             raise HTTPException(
                 status_code=403,
-                detail=f"Upload limit reached. Plan: {user_obj.subscription}, Limit: {upload_limit}"
+                detail=f"Upload limit reached. Plan: {user_obj.subscription}, Limit: {upload_limit}",
             )
 
         # Store document record
@@ -83,7 +95,7 @@ async def upload_file(
             doc_id=doc_id,
             filename=file.filename,
             user_email=user,
-            status="processing"
+            status="processing",
         )
         db.add(document)
         await db.commit()
@@ -95,7 +107,7 @@ async def upload_file(
             "filename": file.filename,
             "doc_id": doc_id,
             "status": "Processing embeddings in background",
-            "upload_time_sec": elapsed
+            "upload_time_sec": elapsed,
         }
 
     finally:

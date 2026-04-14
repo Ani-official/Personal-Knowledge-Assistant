@@ -1,6 +1,5 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-import os
 from dotenv import load_dotenv
 from app.core.config import settings
 
@@ -10,8 +9,10 @@ DATABASE_URL = settings.DATABASE_URL
 
 engine = create_async_engine(
     DATABASE_URL,
-    echo=True,
-    pool_pre_ping=True,  # ✅ important: checks if connection is alive before using
+    echo=False,
+    pool_pre_ping=True,
+    pool_size=2,
+    max_overflow=3,  # max 5 total connections — matches Neon free tier limit
 )
 
 async_session = sessionmaker(
@@ -19,6 +20,9 @@ async_session = sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False
 )
+
+# Alias used by rag.py for background tasks
+AsyncSessionLocal = async_session
 
 async def get_db():
     async with async_session() as session:

@@ -33,6 +33,7 @@ export function APIKeyManager({ apiBase }: { apiBase: string }) {
           if (data.has_key) {
             setKeyStatus("linked")
             setLinked(true)
+            localStorage.setItem("knowai-key-linked", "true")
             return
           }
         }
@@ -92,6 +93,7 @@ export function APIKeyManager({ apiBase }: { apiBase: string }) {
         toast.success("API key linked successfully")
         setKeyStatus("linked")
         setLinked(true)
+        localStorage.setItem("knowai-key-linked", "true")
       } else {
         const data = await res.json()
         const message = Array.isArray(data.detail)
@@ -112,6 +114,7 @@ export function APIKeyManager({ apiBase }: { apiBase: string }) {
 
   const handleRemoveKey = () => {
     localStorage.removeItem("user-api-key")
+    localStorage.removeItem("knowai-key-linked")
     setApiKey("")
     setKeyStatus("none")
     setLinked(false)

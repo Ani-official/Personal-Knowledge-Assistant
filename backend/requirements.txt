@@ -35,7 +35,8 @@ httpx==0.28.1
 markdown==3.8.2
 
 # AI/NLP features
-chromadb==1.0.15
-sentence-transformers==5.0.0
-torch==2.4.0+cpu
---extra-index-url https://download.pytorch.org/whl/cpu
+qdrant-client==1.9.1
+openai==1.58.1
+
+# Rate limiting
+slowapi==0.1.9

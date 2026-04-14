@@ -102,6 +102,10 @@ export default function UploadBox({ onUpload }: { onUpload: (docId: string) => v
               setStatus(null)
             }
           }, 1500)
+        } else if (data.status === "failed") {
+          clearInterval(pollingRef.current!)
+          setProcessing(false)
+          setStatus("Failed")
         }
       } catch (err) {
         console.error("Polling error:", err)

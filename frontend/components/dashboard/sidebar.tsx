@@ -3,10 +3,14 @@
 import { useState } from "react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
-import { Trash2, CheckCircle2, Loader2, History, FileText } from "lucide-react"
+import {
+  Trash2, CheckCircle2, Loader2, XCircle,
+  FileText, Plus, Key, ChevronDown,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { APIKeyManager } from "./api-key-manager"
+import UploadFAB from "@/components/ui/upload-fab"
 
 export type DocumentItem = {
   doc_id: string
@@ -18,16 +22,19 @@ export type DocumentItem = {
 export default function DashboardSidebar({
   documents,
   onSelect,
+  onUpload,
   onDelete,
   activeDocId,
 }: {
   documents: DocumentItem[]
   onSelect: (docId: string | null) => void
+  onUpload: (docId: string) => void
   onDelete: (docId: string) => void
   activeDocId: string | null
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -37,75 +44,104 @@ export default function DashboardSidebar({
   }
 
   const handleConfirmDelete = () => {
-    if (pendingDeleteId) {
-      onDelete(pendingDeleteId)
-    }
+    if (pendingDeleteId) onDelete(pendingDeleteId)
     setConfirmOpen(false)
     setPendingDeleteId(null)
   }
 
+  const formatDate = (iso: string) => {
+    const d = new Date(iso)
+    const now = new Date()
+    const diffDays = Math.floor((now.getTime() - d.getTime()) / 86_400_000)
+    if (diffDays === 0) return "Today"
+    if (diffDays === 1) return "Yesterday"
+    if (diffDays < 7) return `${diffDays} days ago`
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  }
+
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* API Key Section - Fixed at top */}
-      <div className="flex-shrink-0 p-2 border-b">
-        <APIKeyManager apiBase={apiBase} />
+    <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
+      {/* ── Top: Upload button ─────────────────────── */}
+      <div className="flex-shrink-0 p-3">
+        <UploadFAB
+          onUpload={onUpload}
+          trigger={
+            <Button
+              className="w-full h-10 gap-2 font-medium shadow-sm shadow-primary/20"
+              variant="default"
+            >
+              <Plus className="w-4 h-4" />
+              New Document
+            </Button>
+          }
+        />
       </div>
 
-      {/* Documents Header - Fixed */}
-      <div className="flex-shrink-0 flex items-center gap-2 px-4 py-3 border-b bg-background">
-        <History className="w-4 h-4 text-muted-foreground" />
-        <h2 className="font-medium text-sm">Recent Documents</h2>
+      {/* ── Documents section header ─────────────────── */}
+      <div className="flex-shrink-0 flex items-center justify-between px-4 py-2">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+          Documents
+        </span>
         {documents.length > 0 && (
-          <span className="ml-auto text-xs text-muted-foreground bg-muted px-2 py-1 rounded-full">
+          <span className="text-xs text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full">
             {documents.length}
           </span>
         )}
       </div>
 
-      {/* Documents List - Scrollable */}
+      {/* ── Document list ────────────────────────────── */}
       <div className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full">
-          <div className="p-2">
+        <ScrollArea className="h-full scrollbar-thin">
+          <div className="px-2 pb-2 space-y-0.5">
             {documents.length === 0 ? (
-              <div className="space-y-2 p-2">
-                <div className="text-center py-8">
-                  <FileText className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">No documents yet</p>
-                  <p className="text-xs text-muted-foreground mt-1">Upload your first document to get started</p>
+              <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center mb-3">
+                  <FileText className="w-5 h-5 text-muted-foreground/60" />
                 </div>
+                <p className="text-sm font-medium text-muted-foreground mb-1">No documents yet</p>
+                <p className="text-xs text-muted-foreground/70">
+                  Upload your first document above to get started
+                </p>
               </div>
             ) : (
-              <div className="space-y-1">
-                {documents.map((doc) => (
+              documents.map((doc) => {
+                const isActive = activeDocId === doc.doc_id
+                return (
                   <div
                     key={doc.doc_id}
+                    onClick={() => doc.status === "done" && onSelect(doc.doc_id)}
                     className={cn(
-                      "group flex items-start gap-3 p-3 rounded-lg hover:bg-accent/50 transition-colors cursor-pointer border",
-                      activeDocId === doc.doc_id && "bg-accent border-primary/20 shadow-sm",
+                      "group relative flex items-start gap-2.5 px-3 py-2.5 rounded-lg transition-all duration-150",
+                      doc.status === "done" ? "cursor-pointer" : "cursor-default",
+                      isActive
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                        : "hover:bg-sidebar-accent/50"
                     )}
-                    onClick={() => onSelect(doc.doc_id)}
                   >
-                    {/* Status Icon */}
+                    {/* Status indicator */}
                     <div className="flex-shrink-0 mt-0.5">
                       {doc.status === "done" ? (
-                        <CheckCircle2 className="w-4 h-4 text-green-500" />
+                        <CheckCircle2 className={cn("w-3.5 h-3.5", isActive ? "text-primary" : "text-green-500")} />
+                      ) : doc.status === "failed" ? (
+                        <XCircle className="w-3.5 h-3.5 text-destructive" />
                       ) : (
-                        <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />
+                        <Loader2 className="w-3.5 h-3.5 text-amber-500 animate-spin" />
                       )}
                     </div>
 
-                    {/* Document Info */}
+                    {/* Name + meta */}
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm truncate mb-1" title={doc.filename}>
-                        {doc.filename.length > 20 ? `${doc.filename.slice(0, 25)}...` : doc.filename}
-                      </div>
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span className="capitalize">{doc.status}</span>
-                        <span>{new Date(doc.upload_time).toLocaleDateString()}</span>
-                      </div>
+                      <p className="text-sm font-medium truncate leading-snug" title={doc.filename}>
+                        {doc.filename}
+                      </p>
+                      <p className="text-xs text-muted-foreground/70 mt-0.5">
+                        {doc.status === "processing" ? "Processing…" :
+                         doc.status === "failed"     ? "Failed" :
+                         formatDate(doc.upload_time)}
+                      </p>
                     </div>
 
-                    {/* Delete Button */}
+                    {/* Delete button */}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -113,22 +149,41 @@ export default function DashboardSidebar({
                         e.stopPropagation()
                         handleDeleteClick(doc.doc_id)
                       }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 text-muted-foreground hover:text-destructive flex-shrink-0"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 text-muted-foreground/60 hover:text-destructive flex-shrink-0"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
-                ))}
-              </div>
+                )
+              })
             )}
           </div>
         </ScrollArea>
       </div>
 
+      {/* ── Bottom: API Key settings ─────────────────── */}
+      <div className="flex-shrink-0 border-t border-sidebar-border">
+        <button
+          onClick={() => setSettingsOpen(!settingsOpen)}
+          className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 hover:text-muted-foreground transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <Key className="w-3.5 h-3.5" />
+            API Key
+          </span>
+          <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", settingsOpen && "rotate-180")} />
+        </button>
+        {settingsOpen && (
+          <div className="px-3 pb-3">
+            <APIKeyManager apiBase={apiBase} />
+          </div>
+        )}
+      </div>
+
       <ConfirmDialog
         open={confirmOpen}
-        title="Delete Document"
-        description="Are you sure you want to delete this document? This action cannot be undone."
+        title="Delete document"
+        description="This will permanently delete the document and all its data. This action cannot be undone."
         onConfirm={handleConfirmDelete}
         onCancel={() => {
           setConfirmOpen(false)

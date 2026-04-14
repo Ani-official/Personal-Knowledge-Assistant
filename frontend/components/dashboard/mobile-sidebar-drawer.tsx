@@ -3,18 +3,20 @@
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
-import { Menu, X } from "lucide-react"
+import { Menu } from "lucide-react"
 import DashboardSidebar, { type DocumentItem } from "@/components/dashboard/sidebar"
 import { useState } from "react"
 
 export default function MobileSidebarDrawer({
   documents,
   onSelect,
+  onUpload,
   onDelete,
   activeDocId,
 }: {
   documents: DocumentItem[]
   onSelect: (docId: string | null) => void
+  onUpload: (docId: string) => void
   onDelete: (docId: string) => void
   activeDocId: string | null
 }) {
@@ -22,12 +24,7 @@ export default function MobileSidebarDrawer({
 
   const handleSelect = (docId: string | null) => {
     onSelect(docId)
-    setOpen(false) // Close drawer after selection
-  }
-
-  const handleDelete = (docId: string) => {
-    onDelete(docId)
-    // Don't close drawer on delete, user might want to select another doc
+    setOpen(false)
   }
 
   return (
@@ -38,16 +35,21 @@ export default function MobileSidebarDrawer({
           <span className="sr-only">Open menu</span>
         </Button>
       </SheetTrigger>
-      <SheetContent side="left" className="p-0 w-80 sm:w-96">
-        <div className="flex items-center justify-between p-4 border-b">
-          <DialogTitle className="font-semibold">Documents</DialogTitle>
+      <SheetContent side="left" className="p-0 w-72 sm:w-80">
+        <div className="flex items-center px-4 h-14 border-b border-border/60">
+          <DialogTitle className="font-bold text-base">
+            <span className="text-primary">Know</span>AI
+          </DialogTitle>
         </div>
-        <DashboardSidebar
-          documents={documents}
-          onSelect={handleSelect}
-          onDelete={handleDelete}
-          activeDocId={activeDocId}
-        />
+        <div className="h-[calc(100%-3.5rem)]">
+          <DashboardSidebar
+            documents={documents}
+            onSelect={handleSelect}
+            onUpload={onUpload}
+            onDelete={onDelete}
+            activeDocId={activeDocId}
+          />
+        </div>
       </SheetContent>
     </Sheet>
   )

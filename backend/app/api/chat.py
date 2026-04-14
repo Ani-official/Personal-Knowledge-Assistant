@@ -1,18 +1,28 @@
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
 from app.core.security import get_current_user
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.user_api_key import UserAPIKey
 from app.core.encryption import decrypt_key
 from app.services.rag import get_context_chunks, query_llm
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
+
+MAX_QUESTION_LENGTH = 2000
+
 
 @router.post("/")
+@limiter.limit("10/minute")
 async def chat_with_doc(
+    request: Request,
     doc_id: str = Body(...),
     question: str = Body(...),
     api_key: str | None = Body(None),
@@ -23,12 +33,19 @@ async def chat_with_doc(
     if not doc_id or not question:
         raise HTTPException(status_code=400, detail="Missing doc_id or question")
 
-    chunks = get_context_chunks(doc_id, question, top_k=4)
+    if len(question) > MAX_QUESTION_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Question too long. Maximum {MAX_QUESTION_LENGTH} characters.",
+        )
+
+    chunks = await get_context_chunks(doc_id, question, top_k=4)
 
     if not chunks or not isinstance(chunks, list):
         raise HTTPException(status_code=404, detail="No relevant context found")
 
-    # Determine API key
+    # Determine API key: request body > DB stored key > server fallback
+    using_fallback = False
     final_key = api_key
     if not final_key:
         result = await db.execute(select(UserAPIKey).where(UserAPIKey.email == user))
@@ -37,10 +54,15 @@ async def chat_with_doc(
             final_key = decrypt_key(user_key_row.encrypted_key)
 
     if not final_key:
-        raise HTTPException(status_code=403, detail="No API key found")
+        if not settings.OPENROUTER_API_KEY:
+            raise HTTPException(status_code=403, detail="No API key configured")
+        final_key = settings.OPENROUTER_API_KEY
+        using_fallback = True
 
-    # Directly stream from query_llm
+    headers = {"X-Fallback-Key": "true"} if using_fallback else {}
+
     return StreamingResponse(
         query_llm(question, chunks, final_key, model),
-        media_type="text/event-stream"
+        media_type="text/event-stream",
+        headers=headers,
     )

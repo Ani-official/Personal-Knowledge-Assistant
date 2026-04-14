@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 router = APIRouter()
 
+
 class APIKeyRequest(BaseModel):
     api_key: str
 
@@ -17,7 +18,7 @@ class APIKeyRequest(BaseModel):
 async def set_user_api_key(
     payload: APIKeyRequest,
     user: str = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     encrypted = encrypt_key(payload.api_key)
     result = await db.execute(select(UserAPIKey).where(UserAPIKey.email == user))
@@ -31,10 +32,22 @@ async def set_user_api_key(
     await db.commit()
     return {"message": "API key saved securely"}
 
+
+@router.get("/status")
+async def get_api_key_status(
+    user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Returns whether the user has a stored API key, without exposing the key itself."""
+    result = await db.execute(select(UserAPIKey).where(UserAPIKey.email == user))
+    row = result.scalar_one_or_none()
+    return {"has_key": row is not None}
+
+
 @router.get("/")
 async def get_user_api_key(
     user: str = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(UserAPIKey).where(UserAPIKey.email == user))
     row = result.scalar_one_or_none()

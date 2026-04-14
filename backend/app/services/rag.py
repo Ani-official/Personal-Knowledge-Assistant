@@ -1,42 +1,28 @@
 # rag.py
-import os
-import re
 import json
 import asyncio
 import logging
+import uuid
 from typing import AsyncGenerator, List
-from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
-from sqlalchemy import update
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
-from concurrent.futures import ThreadPoolExecutor
 
-import httpx
-import chromadb
+from openai import AsyncOpenAI
+from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue
+from sqlalchemy import update
+
 from app.utils.compression import decompress_text
 from app.models.document import Document
 from app.core.config import settings
+from app.db.session import AsyncSessionLocal
+from app.services.vector_store import qdrant_client, COLLECTION_NAME
 
-# Setup logging
 logger = logging.getLogger(__name__)
-executor = ThreadPoolExecutor()
 
-# Load env vars
-load_dotenv()
-DATABASE_URL = settings.DATABASE_URL
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is not set in .env")
+openai_client = AsyncOpenAI(
+    api_key=settings.EMBEDDING_API_KEY,
+    base_url=settings.EMBEDDING_BASE_URL,
+)
 
-# Adjust dialect for asyncpg
-DATABASE_URL = re.sub(r"^postgresql:", "postgresql+asyncpg:", DATABASE_URL)
-engine = create_async_engine(DATABASE_URL, echo=False)
-AsyncSessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
-
-# Init embedding model and ChromaDB
-model = SentenceTransformer("thenlper/gte-large")
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
-collection = chroma_client.get_or_create_collection(name="user_notes")
+EMBED_MODEL = settings.EMBEDDING_MODEL
 
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
@@ -49,19 +35,15 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]
     return chunks
 
 
-async def encode_chunks_async(chunks: List[str]):
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        executor,
-        lambda: model.encode(
-            chunks, batch_size=8, show_progress_bar=False, convert_to_numpy=True
-        ).tolist()
-    )
+async def embed_texts(texts: List[str]) -> List[List[float]]:
+    response = await openai_client.embeddings.create(input=texts, model=EMBED_MODEL)
+    return [item.embedding for item in response.data]
 
 
 async def embed_and_store(compressed_text: bytes, doc_id: str):
     """
-    Decompress, chunk, embed and store in Chroma. Offloads CPU/blocking calls to threadpool.
+    Decompress, chunk, embed via OpenAI, and upsert into Qdrant.
+    Updates Document status to 'done' on success or 'failed' on error.
     """
     try:
         text = decompress_text(compressed_text)
@@ -74,17 +56,18 @@ async def embed_and_store(compressed_text: bytes, doc_id: str):
             logger.warning(f"[Empty] Chunking failed for doc_id={doc_id}")
             return
 
-        # encode in executor (already implemented above)
-        embeddings = await encode_chunks_async(chunks)
-        ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
-        metadata = [{"source": doc_id, "chunk": i} for i in range(len(chunks))]
+        embeddings = await embed_texts(chunks)
 
-        # collection.add can be blocking — run in executor to avoid blocking event loop
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            executor,
-            lambda: collection.add(documents=chunks, embeddings=embeddings, ids=ids, metadatas=metadata)
-        )
+        points = [
+            PointStruct(
+                id=str(uuid.uuid4()),
+                vector=embedding,
+                payload={"source": doc_id, "chunk": i, "text": chunk},
+            )
+            for i, (chunk, embedding) in enumerate(zip(chunks, embeddings))
+        ]
+
+        await qdrant_client.upsert(collection_name=COLLECTION_NAME, points=points)
 
         async with AsyncSessionLocal() as session:
             await session.execute(
@@ -92,73 +75,84 @@ async def embed_and_store(compressed_text: bytes, doc_id: str):
             )
             await session.commit()
 
-        logger.info(f"[✅] Stored embeddings for doc_id={doc_id}")
+        logger.info(f"[OK] Stored {len(points)} embeddings for doc_id={doc_id}")
 
     except Exception as e:
-        logger.exception(f"[❌] Failed to embed/store for doc_id={doc_id}: {e}")
+        logger.exception(f"[FAILED] embed/store for doc_id={doc_id}: {e}")
+        try:
+            async with AsyncSessionLocal() as session:
+                await session.execute(
+                    update(Document).where(Document.doc_id == doc_id).values(status="failed")
+                )
+                await session.commit()
+        except Exception as db_err:
+            logger.exception(f"[FAILED] Could not update status to 'failed' for doc_id={doc_id}: {db_err}")
 
 
-def get_context_chunks(doc_id: str, query: str, top_k: int = 3) -> List[str]:
+async def get_context_chunks(doc_id: str, query: str, top_k: int = 3) -> List[str]:
     """
-    Retrieve top-k most relevant chunks for doc_id using the sentence-transformer model + Chroma.
+    Retrieve top-k most relevant chunks for doc_id using OpenAI embeddings + Qdrant.
     """
     try:
-        # NOTE: model.encode here is synchronous; for single-query it's usually fine but
-        # consider offloading if you notice blocking
-        query_embedding = model.encode([query])[0].tolist()
-        results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            where={"source": doc_id}
-        )
-        documents = results.get("documents", [[]])
-        return documents[0] if documents and len(documents[0]) > 0 else []
-    except Exception as e:
-        logger.exception(f"[❌] Retrieval failed for doc_id={doc_id}, query='{query}': {e}")
-        return []
+        query_embeddings = await embed_texts([query])
+        query_vector = query_embeddings[0]
 
+        results = await qdrant_client.search(
+            collection_name=COLLECTION_NAME,
+            query_vector=query_vector,
+            query_filter=Filter(
+                must=[FieldCondition(key="source", match=MatchValue(value=doc_id))]
+            ),
+            limit=top_k,
+        )
+        return [hit.payload["text"] for hit in results if hit.payload and "text" in hit.payload]
+
+    except Exception as e:
+        logger.exception(f"[FAILED] Retrieval for doc_id={doc_id}, query='{query}': {e}")
+        return []
 
 
 async def query_llm(
     question: str,
     chunks: List[str],
     api_key: str,
-    model_name: str
+    model_name: str,
 ) -> AsyncGenerator[str, None]:
     """
-    Calls OpenRouter (or other provider that returns OpenAI-style streaming events),
-    normalizes their streaming lines and yields OpenAI-style SSE JSON events.
-
-    Each yielded string is an SSE event, e.g.
-      data: {"choices":[{"delta":{"content":"...token..."}}]}\n\n
+    Calls OpenRouter with streaming and yields OpenAI-style SSE events.
     """
-    url = "https://openrouter.ai/api/v1/chat/completions"
+    import httpx
 
+    url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-
     payload = {
         "model": model_name,
         "messages": [
             {
                 "role": "system",
-                "content": "You are an AI assistant. Use the provided context to answer the question."
+                "content": "You are an AI assistant. Use the provided context to answer the question.",
             },
             {
                 "role": "user",
-                "content": f"Context: {' '.join(chunks)}\n\nQuestion: {question}"
+                "content": f"Context: {' '.join(chunks)}\n\nQuestion: {question}",
             },
         ],
         "stream": True,
     }
 
-    # ✅ Let frontend know AI has started typing immediately
-    yield "data: {\"choices\":[{\"delta\":{\"content\":\"\"}}]}\n\n"
+    # Signal to frontend that AI has started
+    yield 'data: {"choices":[{"delta":{"content":""}}]}\n\n'
 
     async with httpx.AsyncClient(timeout=None) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as response:
+            if response.status_code == 429:
+                yield 'data: {"rate_limit": true}\n\n'
+                yield "data: [DONE]\n\n"
+                return
+
             if response.status_code < 200 or response.status_code >= 300:
                 try:
                     body_text = await response.aread()
@@ -167,6 +161,7 @@ async def query_llm(
                     err_text = f"HTTP {response.status_code} (no body)"
                 error_event = {"error": f"Upstream API error: {err_text}"}
                 yield f"data: {json.dumps(error_event)}\n\n"
+                yield "data: [DONE]\n\n"
                 return
 
             async for line in response.aiter_lines():
@@ -183,8 +178,8 @@ async def query_llm(
 
                 try:
                     parsed = json.loads(data)
-
                     content = None
+
                     choices = parsed.get("choices") or []
                     if choices:
                         first = choices[0]
@@ -209,8 +204,6 @@ async def query_llm(
                     if content:
                         event = {"choices": [{"delta": {"content": content}}]}
                         yield f"data: {json.dumps(event)}\n\n"
-
-                        # ✅ Slow down slightly so frontend streams smoothly
                         await asyncio.sleep(0.02)
 
                 except json.JSONDecodeError:
@@ -220,5 +213,4 @@ async def query_llm(
                     logger.exception("Error processing stream chunk: %s", e)
                     continue
 
-    # ✅ Safety net
     yield "data: [DONE]\n\n"

@@ -2,29 +2,20 @@
 
 import { useState, useEffect } from "react"
 import { DashboardNavbar } from "@/components/dashboard/navbar"
-import UploadFAB from "@/components/ui/upload-fab"
 import ChatPanel from "@/components/dashboard/chat-panel"
 import DashboardSidebar, { type DocumentItem } from "@/components/dashboard/sidebar"
 import { useAuth } from "@/lib/useAuth"
 import AuthDialog from "@/components/ui/auth-dialog"
+import { Bot } from "lucide-react"
+import UploadFAB from "@/components/ui/upload-fab"
+import { Button } from "@/components/ui/button"
+import { Plus } from "lucide-react"
 
 export default function Dashboard() {
   const [docId, setDocId] = useState<string | null>(null)
   const [documents, setDocuments] = useState<DocumentItem[]>([])
   const { status } = useAuth()
 
-  // Save auth_type from cookie to localStorage
-  useEffect(() => {
-    const authTypeCookie = document.cookie
-      .split("; ")
-      .find((row) => row.startsWith("auth_type="))
-    if (authTypeCookie) {
-      const value = authTypeCookie.split("=")[1]
-      localStorage.setItem("auth_type", value)
-    }
-  }, [])
-
-  // Called when a document is uploaded or selected
   const handleUpload = (uploadedId: string | null) => {
     if (uploadedId) {
       localStorage.setItem("activeDocId", uploadedId)
@@ -36,22 +27,16 @@ export default function Dashboard() {
     fetchDocuments()
   }
 
-  // Called when a document is deleted
   const handleDelete = async (deletedId: string) => {
     const token = localStorage.getItem("token")
-
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/documents/${deletedId}`, {
         method: "DELETE",
-        headers: token
-          ? { Authorization: `Bearer ${token}` }
-          : undefined,
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         credentials: token ? "omit" : "include",
       })
-
       if (res.ok) {
-        const updatedDocs = documents.filter((doc) => doc.doc_id !== deletedId)
-        setDocuments(updatedDocs)
+        setDocuments((prev) => prev.filter((d) => d.doc_id !== deletedId))
         if (docId === deletedId) {
           setDocId(null)
           localStorage.removeItem("activeDocId")
@@ -62,28 +47,22 @@ export default function Dashboard() {
     }
   }
 
-  // Fetch recent documents (support both token and cookie auth)
   const fetchDocuments = async () => {
     const token = localStorage.getItem("token")
-
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/documents/`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        credentials: token ? "omit" : "include", // OAuth users need cookie
+        credentials: token ? "omit" : "include",
       })
-
       if (res.ok) {
         const data = await res.json()
         setDocuments(data)
-      } else {
-        console.warn("Failed to fetch documents:", res.status)
       }
     } catch (err) {
       console.error("Error fetching documents:", err)
     }
   }
 
-  // Load once on mount (for activeDocId), and when user is authenticated
   useEffect(() => {
     if (status === "authenticated") {
       fetchDocuments()
@@ -92,56 +71,69 @@ export default function Dashboard() {
     }
   }, [status])
 
-  // Handle loading and unauthenticated state
   if (status === "loading") return null
 
   if (status === "unauthenticated") {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-muted/30 dark:bg-background/90 px-4">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-background px-4">
         <AuthDialog mode="signin" openByDefault />
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-screen bg-muted/30 dark:bg-background/90">
+    <div className="flex flex-col h-screen bg-background">
       <DashboardNavbar
         documents={documents}
         onSelect={handleUpload}
+        onUpload={handleUpload}
         onDelete={handleDelete}
         activeDocId={docId}
       />
 
-      <div className="flex flex-1 min-h-0 relative">
-        <aside className="hidden lg:flex lg:w-80 flex-col border-r dark:border-zinc-800 bg-background">
+      <div className="flex flex-1 min-h-0">
+        {/* Desktop sidebar */}
+        <aside className="hidden lg:flex lg:w-72 xl:w-80 flex-col border-r border-border/60 flex-shrink-0">
           <DashboardSidebar
             documents={documents}
             onSelect={handleUpload}
+            onUpload={handleUpload}
             onDelete={handleDelete}
             activeDocId={docId}
           />
         </aside>
 
-        <main className="flex-1 flex flex-col relative overflow-hidden">
+        {/* Main content */}
+        <main className="flex-1 flex flex-col min-w-0 relative">
           {!docId ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-4 text-center">
-              <div className="max-w-md mx-auto space-y-4">
-                <h2 className="text-2xl font-semibold text-muted-foreground">Welcome to KnowAI</h2>
-                <p className="text-muted-foreground">
-                  Upload a document to start chatting with your files. Use the upload button to get started.
-                </p>
-                <div className="text-sm text-muted-foreground/80">Supported formats: PDF, TXT, MD, HTML</div>
+            /* No document selected — empty state */
+            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+              <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-5">
+                <Bot className="w-8 h-8 text-primary" />
               </div>
+              <h2 className="text-2xl font-bold mb-2">Welcome to KnowAI</h2>
+              <p className="text-muted-foreground max-w-sm mb-8 leading-relaxed">
+                Upload a document to start chatting. Ask questions in plain English — get precise answers instantly.
+              </p>
+              <UploadFAB
+                onUpload={handleUpload}
+                trigger={
+                  <Button size="lg" className="h-11 px-7 gap-2 shadow-lg shadow-primary/20">
+                    <Plus className="w-4 h-4" />
+                    Upload your first document
+                  </Button>
+                }
+              />
+              <p className="mt-4 text-xs text-muted-foreground/60">
+                PDF, TXT, MD, HTML · Max 10 MB
+              </p>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col overflow-y-auto">
+            /* Chat area */
+            <div className="flex-1 flex flex-col overflow-hidden relative">
               <ChatPanel docId={docId} />
             </div>
           )}
-
-          <div className="fixed bottom-4 right-4 z-30 lg:bottom-6 lg:right-6">
-            <UploadFAB onUpload={handleUpload} />
-          </div>
         </main>
       </div>
     </div>

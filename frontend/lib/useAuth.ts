@@ -10,29 +10,14 @@ export function useAuth() {
     const localToken = localStorage.getItem("token")
     const authType = localStorage.getItem("auth_type")
 
-    // 1. If token exists (email/password login)
-    if (localToken && authType === "email") {
+    // If a token exists in localStorage (email/password OR google via callback page)
+    if (localToken && (authType === "email" || authType === "google")) {
       setStatus("authenticated")
       return
     }
 
-    // 2. Otherwise check server (OAuth via cookie)
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/me`, {
-      credentials: "include", // important!
-    })
-      .then((res) => res.ok ? res.json() : Promise.reject())
-      .then((data) => {
-        if (data?.email) {
-          setEmail(data.email)
-          setStatus("authenticated")
-          localStorage.setItem("auth_type", "google")
-        } else {
-          setStatus("unauthenticated")
-        }
-      })
-      .catch(() => {
-        setStatus("unauthenticated")
-      })
+    // No token — user is not logged in
+    setStatus("unauthenticated")
   }, [])
 
   return { status, email }

@@ -4,13 +4,16 @@ from sqlalchemy.future import select
 from app.db.session import get_db
 from app.core.security import get_current_user
 from app.models.document import Document
+from app.services.vector_store import qdrant_client, COLLECTION_NAME
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 router = APIRouter()
+
 
 @router.get("/")
 async def list_documents(
     user: str = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Document).where(Document.user_email == user))
     docs = result.scalars().all()
@@ -19,8 +22,9 @@ async def list_documents(
             "doc_id": d.doc_id,
             "filename": d.filename,
             "status": d.status,
-            "upload_time": d.upload_time
-        } for d in docs
+            "upload_time": d.upload_time,
+        }
+        for d in docs
     ]
 
 
@@ -28,7 +32,7 @@ async def list_documents(
 async def delete_document(
     doc_id: str,
     user: str = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Document).where(Document.doc_id == doc_id, Document.user_email == user)
@@ -40,5 +44,18 @@ async def delete_document(
 
     await db.delete(doc)
     await db.commit()
+
+    # Delete all vectors for this document from Qdrant
+    try:
+        await qdrant_client.delete(
+            collection_name=COLLECTION_NAME,
+            points_selector=Filter(
+                must=[FieldCondition(key="source", match=MatchValue(value=doc_id))]
+            ),
+        )
+    except Exception:
+        # Log but don't fail the request — Postgres record is already deleted
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to delete Qdrant vectors for doc_id={doc_id}")
 
     return {"message": "Document deleted"}

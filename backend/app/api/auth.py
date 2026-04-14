@@ -85,27 +85,12 @@ async def auth_google_callback(request: Request, db: AsyncSession = Depends(get_
 
     jwt_token = create_access_token({"sub": user.email})
 
-    # ✅ Set both token and auth_type cookies
-    response = RedirectResponse(url=settings.FRONTEND_DASHBOARD_URL)
-    response.set_cookie(
-        key="token",
-        value=jwt_token,
-        httponly=True,
-        secure=False,
-        samesite="Lax",
-        max_age=7 * 24 * 60 * 60,
-        path="/"
-    )
-    response.set_cookie(
-        key="auth_type",
-        value="google",
-        httponly=False,
-        secure=False,
-        samesite="Lax",
-        max_age=7 * 24 * 60 * 60,
-        path="/"
-    )
-    return response
+    # Redirect to the frontend's google-callback page which stores the token
+    # in localStorage and then forwards to /dashboard.
+    # Using the callback page (not /dashboard directly) keeps the token-handling
+    # logic in one place and works cross-domain (Render + Vercel).
+    redirect_url = f"{settings.FRONTEND_URL}/auth/google-callback?token={jwt_token}&auth_type=google"
+    return RedirectResponse(url=redirect_url)
 
 
 # ----------------------
@@ -120,7 +105,7 @@ async def get_me(email: str = Depends(get_current_user)):
 # ----------------------
 @router.get("/logout")
 async def logout():
-    response = RedirectResponse(url="http://localhost:3000")
+    response = RedirectResponse(url=settings.FRONTEND_URL)
     response.delete_cookie("token")
     response.delete_cookie("auth_type")
     return response
