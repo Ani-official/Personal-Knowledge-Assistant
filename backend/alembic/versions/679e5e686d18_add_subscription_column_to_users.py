@@ -22,10 +22,22 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade():
-    subscription_enum.create(op.get_bind(), checkfirst=True)
-    op.add_column('users', sa.Column('subscription', subscription_enum, nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_columns = {column["name"] for column in inspector.get_columns("users")}
+
+    subscription_enum.create(bind, checkfirst=True)
+
+    if "subscription" not in existing_columns:
+        op.add_column("users", sa.Column("subscription", subscription_enum, nullable=True))
 
 
 def downgrade():
-    op.drop_column('users', 'subscription')
-    subscription_enum.drop(op.get_bind(), checkfirst=True)
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_columns = {column["name"] for column in inspector.get_columns("users")}
+
+    if "subscription" in existing_columns:
+        op.drop_column("users", "subscription")
+
+    subscription_enum.drop(bind, checkfirst=True)
