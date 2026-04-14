@@ -111,7 +111,7 @@ export default function Dashboard() {
               <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-5">
                 <Bot className="w-8 h-8 text-primary" />
               </div>
-              <h2 className="text-2xl font-bold mb-2">Welcome to KnowAI</h2>
+              <h2 className="text-2xl font-bold mb-2">Welcome to EvidentiaAI</h2>
               <p className="text-muted-foreground max-w-sm mb-8 leading-relaxed">
                 Upload a document to start chatting. Ask questions in plain English — get precise answers instantly.
               </p>

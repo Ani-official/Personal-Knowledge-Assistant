@@ -59,7 +59,7 @@ export function DashboardNavbar({
           />
         </div>
         <span className="font-bold text-lg hidden sm:block">
-          <span className="text-primary">Know</span>AI
+          EvidentiaAI
         </span>
       </div>
 

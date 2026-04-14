@@ -38,7 +38,7 @@ export default function MobileSidebarDrawer({
       <SheetContent side="left" className="p-0 w-72 sm:w-80">
         <div className="flex items-center px-4 h-14 border-b border-border/60">
           <DialogTitle className="font-bold text-base">
-            <span className="text-primary">Know</span>AI
+            EvidentiaAI
           </DialogTitle>
         </div>
         <div className="h-[calc(100%-3.5rem)]">
