@@ -14,6 +14,7 @@ import { Plus } from "lucide-react"
 export default function Dashboard() {
   const [docId, setDocId] = useState<string | null>(null)
   const [documents, setDocuments] = useState<DocumentItem[]>([])
+  const [documentsLoading, setDocumentsLoading] = useState(true)
   const { status } = useAuth()
 
   const handleUpload = (uploadedId: string | null) => {
@@ -49,6 +50,7 @@ export default function Dashboard() {
 
   const fetchDocuments = async () => {
     const token = localStorage.getItem("token")
+    setDocumentsLoading(true)
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/documents/`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -60,6 +62,8 @@ export default function Dashboard() {
       }
     } catch (err) {
       console.error("Error fetching documents:", err)
+    } finally {
+      setDocumentsLoading(false)
     }
   }
 
@@ -85,6 +89,7 @@ export default function Dashboard() {
     <div className="flex flex-col h-screen bg-background">
       <DashboardNavbar
         documents={documents}
+        loading={documentsLoading}
         onSelect={handleUpload}
         onUpload={handleUpload}
         onDelete={handleDelete}
@@ -96,6 +101,7 @@ export default function Dashboard() {
         <aside className="hidden lg:flex lg:w-72 xl:w-80 flex-col border-r border-border/60 flex-shrink-0">
           <DashboardSidebar
             documents={documents}
+            loading={documentsLoading}
             onSelect={handleUpload}
             onUpload={handleUpload}
             onDelete={handleDelete}

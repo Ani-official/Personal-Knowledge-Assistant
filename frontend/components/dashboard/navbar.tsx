@@ -10,12 +10,14 @@ import type { DocumentItem } from "./sidebar"
 
 export function DashboardNavbar({
   documents,
+  loading = false,
   onSelect,
   onUpload,
   onDelete,
   activeDocId,
 }: {
   documents: DocumentItem[]
+  loading?: boolean
   onSelect: (docId: string | null) => void
   onUpload: (docId: string) => void
   onDelete: (docId: string) => void
@@ -52,6 +54,7 @@ export function DashboardNavbar({
         <div className="lg:hidden">
           <MobileSidebarDrawer
             documents={documents}
+            loading={loading}
             onSelect={onSelect}
             onUpload={onUpload}
             onDelete={onDelete}

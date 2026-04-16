@@ -9,12 +9,14 @@ import { useState } from "react"
 
 export default function MobileSidebarDrawer({
   documents,
+  loading = false,
   onSelect,
   onUpload,
   onDelete,
   activeDocId,
 }: {
   documents: DocumentItem[]
+  loading?: boolean
   onSelect: (docId: string | null) => void
   onUpload: (docId: string) => void
   onDelete: (docId: string) => void
@@ -44,6 +46,7 @@ export default function MobileSidebarDrawer({
         <div className="h-[calc(100%-3.5rem)]">
           <DashboardSidebar
             documents={documents}
+            loading={loading}
             onSelect={handleSelect}
             onUpload={onUpload}
             onDelete={onDelete}

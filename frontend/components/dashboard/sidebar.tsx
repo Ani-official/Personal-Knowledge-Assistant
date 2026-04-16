@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { APIKeyManager } from "./api-key-manager";
 import UploadFAB from "@/components/ui/upload-fab";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export type DocumentItem = {
   doc_id: string;
@@ -27,12 +28,14 @@ export type DocumentItem = {
 
 export default function DashboardSidebar({
   documents,
+  loading = false,
   onSelect,
   onUpload,
   onDelete,
   activeDocId,
 }: {
   documents: DocumentItem[];
+  loading?: boolean;
   onSelect: (docId: string | null) => void;
   onUpload: (docId: string) => void;
   onDelete: (docId: string) => void;
@@ -88,7 +91,7 @@ export default function DashboardSidebar({
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
           Documents
         </span>
-        {documents.length > 0 && (
+        {!loading && documents.length > 0 && (
           <span className="text-xs text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full">
             {documents.length}
           </span>
@@ -99,7 +102,21 @@ export default function DashboardSidebar({
       <div className="flex-1 overflow-hidden">
        <ScrollArea className="h-full w-full [&_[data-slot=scroll-area-viewport]]:overflow-x-hidden">
           <div className="mr-[-4px] flex min-w-0 flex-col items-stretch gap-0.5 pl-3 pr-0 pb-2">
-            {documents.length === 0 ? (
+            {loading ? (
+              Array.from({ length: 4 }).map((_, index) => (
+                <div
+                  key={`doc-skeleton-${index}`}
+                  className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 rounded-xl pl-2.5 pr-0.5 py-2.5"
+                >
+                  <Skeleton className="mt-0.5 h-3.5 w-3.5 rounded-full" />
+                  <div className="min-w-0 overflow-hidden">
+                    <Skeleton className="h-4 w-[78%]" />
+                    <Skeleton className="mt-2 h-3 w-16" />
+                  </div>
+                  <Skeleton className="h-7 w-7 self-center rounded-lg" />
+                </div>
+              ))
+            ) : documents.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
                 <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center mb-3">
                   <FileText className="w-5 h-5 text-muted-foreground/60" />
