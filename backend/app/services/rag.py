@@ -151,6 +151,7 @@ async def query_llm(
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+    formatted_context = "\n\n---\n\n".join(chunks)
     payload = {
         "model": model_name,
         "messages": [
@@ -169,7 +170,7 @@ async def query_llm(
                 "role": "user",
                 "content": (
                     "Use only the context below.\n\n"
-                    f"Context:\n\n{'\n\n---\n\n'.join(chunks)}\n\n"
+                    f"Context:\n\n{formatted_context}\n\n"
                     f"Question: {question}"
                 ),
             },
