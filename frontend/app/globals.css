@@ -260,6 +260,30 @@
     animation: floatSlow 10s ease-in-out infinite 1.2s;
   }
 
+  .markdown-message > :first-child {
+    margin-top: 0;
+  }
+
+  .markdown-message > :last-child {
+    margin-bottom: 0;
+  }
+
+  .markdown-message pre code {
+    background: transparent;
+    padding: 0;
+    color: inherit;
+  }
+
+  .markdown-message table tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .typing-cursor::after {
+    content: "|";
+    margin-left: 2px;
+    color: color-mix(in oklab, var(--primary) 72%, white);
+  }
+
   @keyframes fadeIn {
     from { opacity: 0; }
     to { opacity: 1; }

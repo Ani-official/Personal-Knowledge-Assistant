@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.user_api_key import UserAPIKey
 from app.core.encryption import decrypt_key
-from app.services.rag import get_context_chunks, query_llm
+from app.services.rag import get_context_chunks, has_sufficient_context, query_llm, stream_text_response
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -39,10 +39,18 @@ async def chat_with_doc(
             detail=f"Question too long. Maximum {MAX_QUESTION_LENGTH} characters.",
         )
 
-    chunks = await get_context_chunks(doc_id, question, top_k=4)
+    matches = await get_context_chunks(doc_id, question, top_k=4)
 
-    if not chunks or not isinstance(chunks, list):
+    if not matches or not isinstance(matches, list):
         raise HTTPException(status_code=404, detail="No relevant context found")
+
+    if not has_sufficient_context(matches):
+        return StreamingResponse(
+            stream_text_response("I couldn't find that in this document."),
+            media_type="text/event-stream",
+        )
+
+    chunks = [match["text"] for match in matches]
 
     # Determine API key: request body > DB stored key > server fallback
     using_fallback = False

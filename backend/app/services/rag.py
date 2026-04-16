@@ -3,7 +3,7 @@ import json
 import asyncio
 import logging
 import uuid
-from typing import AsyncGenerator, List
+from typing import Any, AsyncGenerator, List
 
 from openai import AsyncOpenAI
 from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue
@@ -23,6 +23,7 @@ openai_client = AsyncOpenAI(
 )
 
 EMBED_MODEL = settings.EMBEDDING_MODEL
+MIN_CONTEXT_SCORE = 0.35
 
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
@@ -89,7 +90,7 @@ async def embed_and_store(compressed_text: bytes, doc_id: str):
             logger.exception(f"[FAILED] Could not update status to 'failed' for doc_id={doc_id}: {db_err}")
 
 
-async def get_context_chunks(doc_id: str, query: str, top_k: int = 3) -> List[str]:
+async def get_context_chunks(doc_id: str, query: str, top_k: int = 3) -> List[dict[str, Any]]:
     """
     Retrieve top-k most relevant chunks for doc_id using OpenAI embeddings + Qdrant.
     """
@@ -105,11 +106,33 @@ async def get_context_chunks(doc_id: str, query: str, top_k: int = 3) -> List[st
             ),
             limit=top_k,
         )
-        return [hit.payload["text"] for hit in results if hit.payload and "text" in hit.payload]
+        return [
+            {
+                "text": hit.payload["text"],
+                "score": getattr(hit, "score", 0.0) or 0.0,
+                "chunk": hit.payload.get("chunk"),
+            }
+            for hit in results
+            if hit.payload and "text" in hit.payload
+        ]
 
     except Exception as e:
         logger.exception(f"[FAILED] Retrieval for doc_id={doc_id}, query='{query}': {e}")
         return []
+
+
+def has_sufficient_context(matches: List[dict[str, Any]], min_score: float = MIN_CONTEXT_SCORE) -> bool:
+    if not matches:
+        return False
+
+    best_score = max(match.get("score", 0.0) for match in matches)
+    return best_score >= min_score
+
+
+async def stream_text_response(message: str) -> AsyncGenerator[str, None]:
+    yield 'data: {"choices":[{"delta":{"content":""}}]}\n\n'
+    yield f'data: {json.dumps({"choices": [{"delta": {"content": message}}]})}\n\n'
+    yield "data: [DONE]\n\n"
 
 
 async def query_llm(
@@ -133,11 +156,22 @@ async def query_llm(
         "messages": [
             {
                 "role": "system",
-                "content": "You are an AI assistant. Use the provided context to answer the question.",
+                "content": (
+                    "You are a retrieval-augmented assistant. Answer only from the provided context. "
+                    "If the answer is not explicitly supported by the context, reply exactly with: "
+                    "\"I couldn't find that in this document.\" "
+                    "Do not use outside knowledge. Do not guess. "
+                    "Format the answer in clean Markdown with short paragraphs, blank lines between sections, "
+                    "and fenced code blocks when showing code."
+                ),
             },
             {
                 "role": "user",
-                "content": f"Context: {' '.join(chunks)}\n\nQuestion: {question}",
+                "content": (
+                    "Use only the context below.\n\n"
+                    f"Context:\n\n{'\n\n---\n\n'.join(chunks)}\n\n"
+                    f"Question: {question}"
+                ),
             },
         ],
         "stream": True,
