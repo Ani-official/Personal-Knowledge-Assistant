@@ -98,7 +98,7 @@ export default function DashboardSidebar({
       {/* ── Document list ────────────────────────────── */}
       <div className="flex-1 overflow-hidden">
        <ScrollArea className="h-full w-full [&_[data-slot=scroll-area-viewport]]:overflow-x-hidden">
-          <div className="flex min-w-0 flex-col items-stretch gap-0.5 pl-3 pr-0 pb-2">
+          <div className="mr-[-4px] flex min-w-0 flex-col items-stretch gap-0.5 pl-3 pr-0 pb-2">
             {documents.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
                 <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center mb-3">
@@ -121,7 +121,7 @@ export default function DashboardSidebar({
                       doc.status === "done" && onSelect(doc.doc_id)
                     }
                     className={cn(
-                      "group grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 rounded-xl pl-2.5 pr-1.5 py-2.5 transition-all duration-150",
+                      "group grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 rounded-xl pl-2.5 pr-0.5 py-2.5 transition-all duration-150",
                       doc.status === "done"
                         ? "cursor-pointer"
                         : "cursor-default",
@@ -164,7 +164,7 @@ export default function DashboardSidebar({
                     </div>
 
                     {/* Delete button */}
-                    <div className="flex w-6 self-center items-center justify-end">
+                    <div className="flex w-5 self-center items-center justify-end">
                       <Button
                         variant="ghost"
                         size="icon"
