@@ -181,71 +181,74 @@ async def query_llm(
     # Signal to frontend that AI has started
     yield 'data: {"choices":[{"delta":{"content":""}}]}\n\n'
 
-    async with httpx.AsyncClient(timeout=None) as client:
-        async with client.stream("POST", url, headers=headers, json=payload) as response:
-            if response.status_code == 429:
-                yield 'data: {"rate_limit": true}\n\n'
-                yield "data: [DONE]\n\n"
-                return
+    try:
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream("POST", url, headers=headers, json=payload) as response:
+                if response.status_code == 429:
+                    yield 'data: {"rate_limit": true}\n\n'
+                    return
 
-            if response.status_code < 200 or response.status_code >= 300:
-                try:
-                    body_text = await response.aread()
-                    err_text = body_text.decode() if isinstance(body_text, (bytes, bytearray)) else str(body_text)
-                except Exception:
-                    err_text = f"HTTP {response.status_code} (no body)"
-                error_event = {"error": f"Upstream API error: {err_text}"}
-                yield f"data: {json.dumps(error_event)}\n\n"
-                yield "data: [DONE]\n\n"
-                return
+                if response.status_code < 200 or response.status_code >= 300:
+                    try:
+                        body_text = await response.aread()
+                        err_text = body_text.decode() if isinstance(body_text, (bytes, bytearray)) else str(body_text)
+                    except Exception:
+                        err_text = f"HTTP {response.status_code} (no body)"
+                    error_event = {"error": f"Upstream API error: {err_text}"}
+                    yield f"data: {json.dumps(error_event)}\n\n"
+                    return
 
-            async for line in response.aiter_lines():
-                logger.debug("LLM STREAM LINE: %s", line)
+                async for line in response.aiter_lines():
+                    logger.debug("LLM STREAM LINE: %s", line)
 
-                if not line or not line.startswith("data: "):
-                    continue
+                    if not line or not line.startswith("data: "):
+                        continue
 
-                data = line[len("data: "):].strip()
+                    data = line[len("data: "):].strip()
 
-                if data == "[DONE]":
-                    yield "data: [DONE]\n\n"
-                    break
+                    if data == "[DONE]":
+                        return
 
-                try:
-                    parsed = json.loads(data)
-                    content = None
+                    try:
+                        parsed = json.loads(data)
+                        content = None
 
-                    choices = parsed.get("choices") or []
-                    if choices:
-                        first = choices[0]
-                        delta = first.get("delta") or {}
-                        if isinstance(delta, dict) and "content" in delta:
-                            content = delta["content"]
-                        else:
-                            message = first.get("message") or {}
-                            if isinstance(message, dict) and "content" in message:
-                                val = message["content"]
-                                if isinstance(val, str):
-                                    content = val
-                                elif isinstance(val, dict) and "text" in val:
-                                    content = val["text"]
+                        choices = parsed.get("choices") or []
+                        if choices:
+                            first = choices[0]
+                            delta = first.get("delta") or {}
+                            if isinstance(delta, dict) and "content" in delta:
+                                content = delta["content"]
+                            else:
+                                message = first.get("message") or {}
+                                if isinstance(message, dict) and "content" in message:
+                                    val = message["content"]
+                                    if isinstance(val, str):
+                                        content = val
+                                    elif isinstance(val, dict) and "text" in val:
+                                        content = val["text"]
 
-                    if content is None:
-                        if "text" in parsed and isinstance(parsed["text"], str):
-                            content = parsed["text"]
-                        elif "content" in parsed and isinstance(parsed["content"], str):
-                            content = parsed["content"]
+                        if content is None:
+                            if "text" in parsed and isinstance(parsed["text"], str):
+                                content = parsed["text"]
+                            elif "content" in parsed and isinstance(parsed["content"], str):
+                                content = parsed["content"]
 
-                    if content:
-                        event = {"choices": [{"delta": {"content": content}}]}
-                        yield f"data: {json.dumps(event)}\n\n"
-                        await asyncio.sleep(0.02)
+                        if content:
+                            event = {"choices": [{"delta": {"content": content}}]}
+                            yield f"data: {json.dumps(event)}\n\n"
+                            await asyncio.sleep(0.02)
 
-                except json.JSONDecodeError:
-                    logger.debug("Failed to json-decode stream fragment; skipping.")
-                    continue
-                except Exception as e:
-                    logger.exception("Error processing stream chunk: %s", e)
-                    continue
+                    except json.JSONDecodeError:
+                        logger.debug("Failed to json-decode stream fragment; skipping.")
+                        continue
+                    except Exception as e:
+                        logger.exception("Error processing stream chunk: %s", e)
+                        continue
 
-    yield "data: [DONE]\n\n"
+    except Exception as e:
+        logger.exception("Unexpected error in LLM stream: %s", e)
+        error_event = {"error": f"Stream error: {str(e)}"}
+        yield f"data: {json.dumps(error_event)}\n\n"
+    finally:
+        yield "data: [DONE]\n\n"
