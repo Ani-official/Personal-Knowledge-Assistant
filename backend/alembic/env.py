@@ -19,7 +19,7 @@ if config.config_file_name:
 
 # Import models and metadata
 from app.db.base import Base
-from app.models import user, document, user_api_key   
+from app.models import user, document, user_api_key, feedback
 
 target_metadata = Base.metadata
 
