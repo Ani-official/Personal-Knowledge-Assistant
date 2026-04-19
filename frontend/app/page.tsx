@@ -4,6 +4,7 @@ import WhoIsItForSection from "@/components/landing/forWhom"
 import Footer from "@/components/landing/footer"
 import Navbar from "@/components/landing/navbar"
 import FaqSection from "@/components/landing/faqsection"
+import FeedbackWidget from "@/components/landing/feedback-widget"
 
 export default function Home() {
   return (
@@ -14,6 +15,7 @@ export default function Home() {
       <WhoIsItForSection />
       <FaqSection />
       <Footer />
+      <FeedbackWidget />
     </div>
   )
 }

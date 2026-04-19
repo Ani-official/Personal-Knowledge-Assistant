@@ -28,9 +28,9 @@ export default function HeroSection() {
             Premium retrieval, grounded in your files
           </div>
 
-          <h1 className="animate-fade-in-up stagger-1 mt-8 text-balance font-display text-5xl leading-[0.96] font-semibold tracking-tight text-foreground sm:text-6xl lg:text-7xl">
+          <h1 className="animate-fade-in-up stagger-1 mt-8 text-balance font-display text-5xl leading-tight font-semibold tracking-tight text-foreground sm:text-6xl lg:text-7xl">
             Answers that stay faithful to
-            <span className="block bg-gradient-to-r from-primary via-primary/85 to-accent-foreground bg-clip-text text-transparent">
+            <span className="block bg-gradient-to-r from-primary via-primary/85 to-accent-foreground bg-clip-text text-transparent pb-2">
               the files you upload.
             </span>
           </h1>
