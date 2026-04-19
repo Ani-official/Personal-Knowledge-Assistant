@@ -24,7 +24,8 @@ import { toast } from "sonner"
 const FREE_CHAT_LIMIT = 5
 const FREE_CHAT_COUNT_KEY = "knowai-free-chat-count"
 
-type ChatMessage = { type: "user" | "ai"; text: string }
+type Source = { doc_id: string; filename: string; score: number }
+type ChatMessage = { type: "user" | "ai"; text: string; sources?: Source[] }
 
 function hasOwnApiKey(): boolean {
   if (typeof window === "undefined") return false
@@ -229,7 +230,9 @@ function MarkdownMessage({
   )
 }
 
-export default function ChatPanel({ docId }: { docId: string }) {
+export default function ChatPanel({ docId }: { docId: string | null }) {
+  const isWorkspace = docId === null
+  const storageKey = isWorkspace ? "chat-messages-workspace" : `chat-messages-${docId}`
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
@@ -254,17 +257,17 @@ export default function ChatPanel({ docId }: { docId: string }) {
   }, [])
 
   useEffect(() => {
-    const stored = localStorage.getItem(`chat-messages-${docId}`)
+    const stored = localStorage.getItem(storageKey)
     setMessages(stored ? JSON.parse(stored) : [])
     setInput("")
     setAiTyping("")
-  }, [docId])
+  }, [storageKey])
 
   useEffect(() => {
     if (messages.length > 0) {
-      localStorage.setItem(`chat-messages-${docId}`, JSON.stringify(messages))
+      localStorage.setItem(storageKey, JSON.stringify(messages))
     }
-  }, [messages, docId])
+  }, [messages, storageKey])
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -287,7 +290,7 @@ export default function ChatPanel({ docId }: { docId: string }) {
   const clearConversation = () => {
     setMessages([])
     setAiTyping("")
-    localStorage.removeItem(`chat-messages-${docId}`)
+    localStorage.removeItem(storageKey)
   }
 
   const sendMessage = async () => {
@@ -312,7 +315,11 @@ export default function ChatPanel({ docId }: { docId: string }) {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         credentials: token ? "omit" : "include",
-        body: JSON.stringify({ doc_id: docId, question: trimmed, model: selectedModel }),
+        body: JSON.stringify({
+          ...(isWorkspace ? { scope: "workspace" } : { scope: "document", doc_id: docId }),
+          question: trimmed,
+          model: selectedModel,
+        }),
       })
 
       if (res.headers.get("X-Fallback-Key") === "true" && !hasOwnApiKey()) {
@@ -325,13 +332,17 @@ export default function ChatPanel({ docId }: { docId: string }) {
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let aiResponse = ""
+      let pendingSources: Source[] = []
       setAiTyping("")
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) {
           if (aiResponse) {
-            setMessages((prev) => [...prev, { type: "ai", text: normalizeMarkdownText(aiResponse) }])
+            setMessages((prev) => [
+              ...prev,
+              { type: "ai", text: normalizeMarkdownText(aiResponse), sources: pendingSources },
+            ])
             setAiTyping("")
           }
           break
@@ -344,7 +355,10 @@ export default function ChatPanel({ docId }: { docId: string }) {
           if (!data) continue
 
           if (data === "[DONE]") {
-            setMessages((prev) => [...prev, { type: "ai", text: normalizeMarkdownText(aiResponse) }])
+            setMessages((prev) => [
+              ...prev,
+              { type: "ai", text: normalizeMarkdownText(aiResponse), sources: pendingSources },
+            ])
             setAiTyping("")
             return
           }
@@ -360,6 +374,10 @@ export default function ChatPanel({ docId }: { docId: string }) {
               toast.error("Rate limit reached. Please try again later or add your own OpenRouter API key.")
               setAiTyping("")
               return
+            }
+            if (parsed?.sources) {
+              pendingSources = parsed.sources
+              continue
             }
             const delta = parsed?.choices?.[0]?.delta?.content
             if (delta) {
@@ -401,7 +419,9 @@ export default function ChatPanel({ docId }: { docId: string }) {
             </div>
             <div>
               <p className="font-medium text-foreground">Conversation</p>
-              <p className="text-xs text-muted-foreground">Grounded answers from your selected document</p>
+              <p className="text-xs text-muted-foreground">
+                {isWorkspace ? "Grounded answers across all your documents" : "Grounded answers from your selected document"}
+              </p>
             </div>
           </div>
           <Button
@@ -426,12 +446,17 @@ export default function ChatPanel({ docId }: { docId: string }) {
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
               <Bot className="h-7 w-7 text-primary" />
             </div>
-            <h3 className="mb-2 text-lg font-semibold">Ask anything</h3>
+            <h3 className="mb-2 text-lg font-semibold">{isWorkspace ? "Ask across all documents" : "Ask anything"}</h3>
             <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
-              I&apos;ve read your document. Ask me about it and I&apos;ll stay grounded in the uploaded content.
+              {isWorkspace
+                ? "Ask a question and I'll search across your entire document library for grounded answers."
+                : "I've read your document. Ask me about it and I'll stay grounded in the uploaded content."}
             </p>
             <div className="mt-6 flex w-full max-w-xs flex-col gap-2">
-              {["Summarize this document", "What are the key points?", "Explain the main topic"].map((q) => (
+              {(isWorkspace
+                ? ["Summarize what my documents say about…", "Which files mention…?", "Compare the guidance across documents"]
+                : ["Summarize this document", "What are the key points?", "Explain the main topic"]
+              ).map((q) => (
                 <button
                   key={q}
                   onClick={() => {
@@ -448,7 +473,7 @@ export default function ChatPanel({ docId }: { docId: string }) {
         ) : (
           <div className="mx-auto max-w-4xl space-y-8 px-5 py-8">
             {messages.map((msg, i) => (
-              <MessageBubble key={i} type={msg.type} text={msg.text} />
+              <MessageBubble key={i} type={msg.type} text={msg.text} sources={msg.sources} />
             ))}
 
             {aiTyping && (
@@ -521,7 +546,7 @@ export default function ChatPanel({ docId }: { docId: string }) {
                 adjustHeight()
               }}
               onKeyDown={handleKeyDown}
-              placeholder="Ask anything about your document... (Shift+Enter for new line)"
+              placeholder={isWorkspace ? "Ask anything across your documents… (Shift+Enter for new line)" : "Ask anything about your document… (Shift+Enter for new line)"}
               rows={1}
               disabled={loading}
               className="max-h-40 w-full resize-none overflow-y-auto bg-transparent px-4 pt-3.5 pb-2 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/60 disabled:opacity-60 scrollbar-thin"
@@ -573,7 +598,7 @@ function Avatar({ type }: { type: "user" | "ai" }) {
   )
 }
 
-function MessageBubble({ type, text }: ChatMessage) {
+function MessageBubble({ type, text, sources }: ChatMessage) {
   if (type === "user") {
     return (
       <div className="flex justify-end gap-3">
@@ -588,7 +613,7 @@ function MessageBubble({ type, text }: ChatMessage) {
   return (
     <div className="group flex gap-3">
       <Avatar type="ai" />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 space-y-2">
         <div className="overflow-hidden rounded-3xl rounded-tl-xl border border-border/60 bg-card/90 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur-sm">
           <div className="flex items-center justify-end border-b border-border/50 px-3 py-2">
             <CopyButton
@@ -601,6 +626,20 @@ function MessageBubble({ type, text }: ChatMessage) {
             <MarkdownMessage text={text} />
           </div>
         </div>
+        {sources && sources.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 px-1">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">Sources</span>
+            {sources.map((s) => (
+              <span
+                key={s.doc_id}
+                title={s.filename}
+                className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/60 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+              >
+                <span className="max-w-[160px] truncate">{s.filename}</span>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

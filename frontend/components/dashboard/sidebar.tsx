@@ -12,6 +12,7 @@ import {
   Plus,
   Key,
   ChevronDown,
+  LibraryBig,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -129,7 +130,27 @@ export default function DashboardSidebar({
                 </p>
               </div>
             ) : (
-              documents.map((doc) => {
+              <>
+                {/* All Documents (workspace) entry */}
+                <div
+                  onClick={() => onSelect(null)}
+                  className={cn(
+                    "group flex w-full items-center gap-2 rounded-xl pl-2.5 pr-2.5 py-2.5 transition-all duration-150 cursor-pointer",
+                    activeDocId === null
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "hover:bg-sidebar-accent/50"
+                  )}
+                >
+                  <LibraryBig
+                    className={cn(
+                      "w-3.5 h-3.5 shrink-0",
+                      activeDocId === null ? "text-primary" : "text-muted-foreground/70"
+                    )}
+                  />
+                  <span className="text-sm font-medium truncate">All Documents</span>
+                </div>
+
+                {documents.map((doc) => {
                 const isActive = activeDocId === doc.doc_id;
                 return (
                   <div
@@ -200,7 +221,8 @@ export default function DashboardSidebar({
                     </div>
                   </div>
                 );
-              })
+              })}
+              </>
             )}
           </div>
         </ScrollArea>

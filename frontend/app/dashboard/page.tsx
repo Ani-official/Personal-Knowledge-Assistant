@@ -111,8 +111,8 @@ export default function Dashboard() {
 
         {/* Main content */}
         <main className="flex-1 flex flex-col min-w-0 relative">
-          {!docId ? (
-            /* No document selected — empty state */
+          {!docId && documents.length === 0 && !documentsLoading ? (
+            /* No documents at all — first-time upload empty state */
             <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
               <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-5">
                 <Bot className="w-8 h-8 text-primary" />
@@ -135,7 +135,7 @@ export default function Dashboard() {
               </p>
             </div>
           ) : (
-            /* Chat area */
+            /* Chat area — docId=null means workspace mode, string means single-doc mode */
             <div className="flex-1 flex flex-col overflow-hidden relative">
               <ChatPanel docId={docId} />
             </div>

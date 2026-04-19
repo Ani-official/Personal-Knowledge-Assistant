@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { UploadCloud, Loader2, X, CheckCircle2, FileText } from "lucide-react"
 import {
   Dialog,
@@ -35,6 +35,9 @@ export default function UploadFAB({
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL
 
+  // Cancel any in-flight poll when the component unmounts
+  useEffect(() => () => { if (pollingRef.current) clearTimeout(pollingRef.current) }, [])
+
   const clear = () => {
     setFile(null)
     setUploading(false)
@@ -43,7 +46,7 @@ export default function UploadFAB({
     setIsDone(false)
     isClearedRef.current = true
     hasToasted.current = false
-    if (pollingRef.current) clearInterval(pollingRef.current)
+    if (pollingRef.current) clearTimeout(pollingRef.current)
   }
 
   const handleClose = (v: boolean) => {
@@ -51,12 +54,12 @@ export default function UploadFAB({
     setOpen(v)
   }
 
-  const pollStatus = async (docId: string) => {
+  const pollStatus = (docId: string) => {
     const token = localStorage.getItem("token")
     setStatusMsg("Processing embeddings…")
 
-    pollingRef.current = setInterval(async () => {
-      if (isClearedRef.current) return clearInterval(pollingRef.current!)
+    const tick = async () => {
+      if (isClearedRef.current) return
 
       try {
         const res = await fetch(`${apiBase}/status/${docId}`, {
@@ -66,30 +69,40 @@ export default function UploadFAB({
         const data = await res.json()
 
         if (data.status === "done") {
-          clearInterval(pollingRef.current!)
+          if (hasToasted.current) return
+          hasToasted.current = true
           setProgress(100)
           setIsDone(true)
           setStatusMsg("Ready!")
-          if (!hasToasted.current) {
-            toast.success("Document is ready to chat!")
-            hasToasted.current = true
-          }
+          toast.success("Document is ready to chat!")
           onUpload(docId)
           setTimeout(() => {
             setOpen(false)
             clear()
           }, 1200)
         } else if (data.status === "failed") {
-          clearInterval(pollingRef.current!)
           setStatusMsg("Processing failed.")
-          toast.error("Document processing failed. Try uploading again.")
+          const detail: string = data.error_detail ?? ""
+          if (detail.toLowerCase().includes("no extractable text")) {
+            toast.error("Could not extract text. The file may be a scanned or image-only PDF.")
+          } else if (detail.includes("429") || detail.toLowerCase().includes("rate limit") || detail.toLowerCase().includes("quota")) {
+            toast.error("Embedding quota exceeded. Check your Jina AI API key or plan limits.")
+          } else if (detail.toLowerCase().includes("unauthorized") || detail.includes("401")) {
+            toast.error("Invalid embedding API key. Check your EMBEDDING_API_KEY setting.")
+          } else {
+            toast.error("Document processing failed. Try uploading again.")
+          }
+        } else {
+          // Still processing — schedule next poll only after this one finishes
+          pollingRef.current = setTimeout(tick, 2000)
         }
       } catch {
-        clearInterval(pollingRef.current!)
-        toast.error("Failed to check document status")
+        toast.error("Failed to check document status.")
         setStatusMsg("Status check failed.")
       }
-    }, 2000)
+    }
+
+    pollingRef.current = setTimeout(tick, 2000)
   }
 
   const handleUpload = async (selectedFile: File) => {
