@@ -101,7 +101,7 @@ export default function DashboardSidebar({
       {/* ── Document list ────────────────────────────── */}
       <div className="flex-1 overflow-hidden">
        <ScrollArea className="h-full w-full [&_[data-slot=scroll-area-viewport]]:overflow-x-hidden">
-          <div className="mr-[-4px] flex min-w-0 flex-col items-stretch gap-0.5 pl-3 pr-0 pb-2">
+          <div className="flex min-w-0 flex-col items-stretch gap-0.5 px-3 pb-2">
             {loading ? (
               Array.from({ length: 4 }).map((_, index) => (
                 <div

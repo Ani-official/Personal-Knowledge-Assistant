@@ -19,6 +19,7 @@ import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { ModelSelector } from "./model-selector"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
 
 const FREE_CHAT_LIMIT = 5
 const FREE_CHAT_COUNT_KEY = "knowai-free-chat-count"
@@ -328,7 +329,13 @@ export default function ChatPanel({ docId }: { docId: string }) {
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          if (aiResponse) {
+            setMessages((prev) => [...prev, { type: "ai", text: normalizeMarkdownText(aiResponse) }])
+            setAiTyping("")
+          }
+          break
+        }
         const chunk = decoder.decode(value, { stream: true })
 
         for (const line of chunk.split("\n")) {
@@ -344,6 +351,16 @@ export default function ChatPanel({ docId }: { docId: string }) {
 
           try {
             const parsed = JSON.parse(data)
+            if (parsed?.error) {
+              toast.error("Model error. Try a different model or shorten the document.")
+              setAiTyping("")
+              return
+            }
+            if (parsed?.rate_limit) {
+              toast.error("Rate limit reached. Please try again later or add your own OpenRouter API key.")
+              setAiTyping("")
+              return
+            }
             const delta = parsed?.choices?.[0]?.delta?.content
             if (delta) {
               aiResponse += delta
