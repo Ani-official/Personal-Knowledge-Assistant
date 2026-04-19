@@ -4,7 +4,7 @@ import tempfile
 import aiofiles
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from app.utils.parser import parse_pdf, parse_markdown
+from app.utils.parser import parse_pdf, parse_markdown, parse_text, parse_html
 from app.services.rag import embed_and_store
 from app.utils.compression import compress_text
 from app.models.document import Document
@@ -59,12 +59,17 @@ async def upload_file(
 
         if filename.endswith(".pdf"):
             text = parse_pdf(temp_file_path)
-        elif filename.endswith(".md"):
+        elif filename.endswith((".md", ".txt", ".html", ".htm")):
             async with aiofiles.open(temp_file_path, "rb") as f:
-                md_content = await f.read()
-            text = parse_markdown(md_content)
+                raw = await f.read()
+            if filename.endswith((".html", ".htm")):
+                text = parse_html(raw)
+            elif filename.endswith(".txt"):
+                text = parse_text(raw)
+            else:
+                text = parse_markdown(raw)
         else:
-            return {"error": "Unsupported file format"}
+            raise HTTPException(status_code=415, detail="Unsupported file type. Allowed: PDF, MD, TXT, HTML")
 
         doc_id = str(uuid.uuid4())
         compressed_text = compress_text(text)

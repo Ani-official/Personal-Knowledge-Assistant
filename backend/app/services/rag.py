@@ -6,7 +6,7 @@ import uuid
 from typing import Any, AsyncGenerator, List
 
 from openai import AsyncOpenAI
-from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue
+from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue, MatchAny
 from sqlalchemy import update
 
 from app.utils.compression import decompress_text
@@ -16,6 +16,10 @@ from app.db.session import AsyncSessionLocal
 from app.services.vector_store import qdrant_client, COLLECTION_NAME
 
 logger = logging.getLogger(__name__)
+
+# Stores the last error reason per doc_id so the status endpoint can expose it.
+# Cleared when a document succeeds or the server restarts.
+_processing_errors: dict[str, str] = {}
 
 openai_client = AsyncOpenAI(
     api_key=settings.EMBEDDING_API_KEY,
@@ -36,9 +40,14 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]
     return chunks
 
 
-async def embed_texts(texts: List[str]) -> List[List[float]]:
-    response = await openai_client.embeddings.create(input=texts, model=EMBED_MODEL)
-    return [item.embedding for item in response.data]
+async def embed_texts(texts: List[str], batch_size: int = 96) -> List[List[float]]:
+    """Embed texts in batches to respect Jina AI's per-request item limit."""
+    embeddings: List[List[float]] = []
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i : i + batch_size]
+        response = await openai_client.embeddings.create(input=batch, model=EMBED_MODEL)
+        embeddings.extend(item.embedding for item in response.data)
+    return embeddings
 
 
 async def embed_and_store(compressed_text: bytes, doc_id: str):
@@ -48,14 +57,12 @@ async def embed_and_store(compressed_text: bytes, doc_id: str):
     """
     try:
         text = decompress_text(compressed_text)
-        if not text:
-            logger.warning(f"[Empty] No text found for doc_id={doc_id}")
-            return
+        if not text or not text.strip():
+            raise ValueError(f"No extractable text found in document {doc_id}")
 
         chunks = chunk_text(text)
         if not chunks:
-            logger.warning(f"[Empty] Chunking failed for doc_id={doc_id}")
-            return
+            raise ValueError(f"Text chunking produced no chunks for document {doc_id}")
 
         embeddings = await embed_texts(chunks)
 
@@ -68,7 +75,8 @@ async def embed_and_store(compressed_text: bytes, doc_id: str):
             for i, (chunk, embedding) in enumerate(zip(chunks, embeddings))
         ]
 
-        await qdrant_client.upsert(collection_name=COLLECTION_NAME, points=points)
+        for i in range(0, len(points), 50):
+            await qdrant_client.upsert(collection_name=COLLECTION_NAME, points=points[i : i + 50])
 
         async with AsyncSessionLocal() as session:
             await session.execute(
@@ -76,9 +84,13 @@ async def embed_and_store(compressed_text: bytes, doc_id: str):
             )
             await session.commit()
 
+        _processing_errors.pop(doc_id, None)
         logger.info(f"[OK] Stored {len(points)} embeddings for doc_id={doc_id}")
 
     except Exception as e:
+        cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+        reason = str(cause) if cause and str(cause) else (str(e) or type(e).__name__)
+        _processing_errors[doc_id] = reason
         logger.exception(f"[FAILED] embed/store for doc_id={doc_id}: {e}")
         try:
             async with AsyncSessionLocal() as session:
@@ -121,6 +133,42 @@ async def get_context_chunks(doc_id: str, query: str, top_k: int = 3) -> List[di
         return []
 
 
+async def get_workspace_context_chunks(
+    doc_ids: List[str], query: str, top_k: int = 6
+) -> List[dict[str, Any]]:
+    """
+    Retrieve top-k chunks across all provided doc_ids (workspace mode).
+    Returns chunks with doc_id included so callers can map back to filenames.
+    """
+    if not doc_ids:
+        return []
+    try:
+        query_embeddings = await embed_texts([query])
+        query_vector = query_embeddings[0]
+
+        results = await qdrant_client.search(
+            collection_name=COLLECTION_NAME,
+            query_vector=query_vector,
+            query_filter=Filter(
+                must=[FieldCondition(key="source", match=MatchAny(any=doc_ids))]
+            ),
+            limit=top_k,
+        )
+        return [
+            {
+                "text": hit.payload["text"],
+                "score": getattr(hit, "score", 0.0) or 0.0,
+                "doc_id": hit.payload.get("source"),
+                "chunk": hit.payload.get("chunk"),
+            }
+            for hit in results
+            if hit.payload and "text" in hit.payload
+        ]
+    except Exception as e:
+        logger.exception(f"[FAILED] Workspace retrieval for query='{query}': {e}")
+        return []
+
+
 def has_sufficient_context(matches: List[dict[str, Any]], min_score: float = MIN_CONTEXT_SCORE) -> bool:
     if not matches:
         return False
@@ -140,9 +188,11 @@ async def query_llm(
     chunks: List[str],
     api_key: str,
     model_name: str,
+    sources: List[dict] | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Calls OpenRouter with streaming and yields OpenAI-style SSE events.
+    If sources is provided, emits a sources SSE event before [DONE].
     """
     import httpx
 
@@ -251,4 +301,6 @@ async def query_llm(
         error_event = {"error": f"Stream error: {str(e)}"}
         yield f"data: {json.dumps(error_event)}\n\n"
     finally:
+        if sources:
+            yield f"data: {json.dumps({'sources': sources})}\n\n"
         yield "data: [DONE]\n\n"

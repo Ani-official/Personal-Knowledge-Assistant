@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.document import Document
 from app.db.session import get_db
 from sqlalchemy.future import select
+from app.services.rag import _processing_errors
 
 router = APIRouter()
 
@@ -18,4 +19,10 @@ async def get_status(
         select(Document).where(Document.doc_id == doc_id, Document.user_email == user)
     )
     doc = result.scalar_one_or_none()
-    return {"status": doc.status if doc else "not_found"}
+    status = doc.status if doc else "not_found"
+    response: dict = {"status": status}
+    if status == "failed":
+        error = _processing_errors.get(doc_id)
+        if error:
+            response["error_detail"] = error
+    return response
