@@ -1,6 +1,7 @@
 import "@/app/globals.css"
 import { Fraunces, Manrope } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
+import { Analytics } from "@vercel/analytics/next"
 import { Toaster } from "sonner"
 
 const manrope = Manrope({
