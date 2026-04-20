@@ -53,6 +53,6 @@ frontend/pnpm-debug.log*
 .vscode/
 .env
 .env.*
-
+.venv
 # Ignore zip archives
 *.zip

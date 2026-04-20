@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +19,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { APIKeyManager } from "./api-key-manager";
 import UploadFAB from "@/components/ui/upload-fab";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 
 export type DocumentItem = {
   doc_id: string;
@@ -34,6 +35,7 @@ export default function DashboardSidebar({
   onUpload,
   onDelete,
   activeDocId,
+  forceApiKeyOpen = false,
 }: {
   documents: DocumentItem[];
   loading?: boolean;
@@ -41,10 +43,15 @@ export default function DashboardSidebar({
   onUpload: (docId: string) => void;
   onDelete: (docId: string) => void;
   activeDocId: string | null;
+  forceApiKeyOpen?: boolean;
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    if (forceApiKeyOpen) setSettingsOpen(true);
+  }, [forceApiKeyOpen]);
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -72,7 +79,7 @@ export default function DashboardSidebar({
   return (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
       {/* ── Top: Upload button ─────────────────────── */}
-      <div className="flex-shrink-0 px-3 pt-3 pb-2">
+      <div id="tour-upload" className="flex-shrink-0 px-3 pt-3 pb-2">
         <UploadFAB
           onUpload={onUpload}
           trigger={
@@ -100,7 +107,7 @@ export default function DashboardSidebar({
       </div>
 
       {/* ── Document list ────────────────────────────── */}
-      <div className="flex-1 overflow-hidden">
+      <div id="tour-doclist" className="flex-1 overflow-hidden">
        <ScrollArea className="h-full w-full [&_[data-slot=scroll-area-viewport]]:overflow-x-hidden">
           <div className="flex min-w-0 flex-col items-stretch gap-0.5 px-3 pb-2">
             {loading ? (
@@ -131,23 +138,28 @@ export default function DashboardSidebar({
               </div>
             ) : (
               <>
-                {/* All Documents (workspace) entry */}
+                {/* Workspace mode toggle */}
                 <div
-                  onClick={() => onSelect(null)}
-                  className={cn(
-                    "group flex w-full items-center gap-2 rounded-xl pl-2.5 pr-2.5 py-2.5 transition-all duration-150 cursor-pointer",
-                    activeDocId === null
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "hover:bg-sidebar-accent/50"
-                  )}
+                  id="tour-workspace"
+                  className="flex items-center justify-between rounded-xl px-2.5 py-2 mb-0.5"
                 >
-                  <LibraryBig
-                    className={cn(
-                      "w-3.5 h-3.5 shrink-0",
-                      activeDocId === null ? "text-primary" : "text-muted-foreground/70"
-                    )}
+                  <div className="flex items-center gap-2">
+                    <LibraryBig className={cn("w-3.5 h-3.5 shrink-0", activeDocId === null ? "text-primary" : "text-muted-foreground/60")} />
+                    <span className={cn("text-sm font-medium", activeDocId === null ? "text-foreground" : "text-muted-foreground")}>
+                     All Documents
+                    </span>
+                  </div>
+                  <Switch
+                    checked={activeDocId === null}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        onSelect(null)
+                      } else {
+                        const firstDone = documents.find(d => d.status === "done")
+                        onSelect(firstDone?.doc_id ?? null)
+                      }
+                    }}
                   />
-                  <span className="text-sm font-medium truncate">All Documents</span>
                 </div>
 
                 {documents.map((doc) => {
@@ -229,7 +241,7 @@ export default function DashboardSidebar({
       </div>
 
       {/* ── Bottom: API Key settings ─────────────────── */}
-      <div className="flex-shrink-0 border-t border-sidebar-border">
+      <div id="tour-apikey" className="flex-shrink-0 border-t border-sidebar-border">
         <button
           onClick={() => setSettingsOpen(!settingsOpen)}
           className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 hover:text-muted-foreground transition-colors"

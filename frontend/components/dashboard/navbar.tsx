@@ -1,12 +1,13 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Moon, Sun, LogOut, FileText } from "lucide-react"
+import { Moon, Sun, LogOut, FileText, BookOpen } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import MobileSidebarDrawer from "@/components/dashboard/mobile-sidebar-drawer"
 import type { DocumentItem } from "./sidebar"
+import { resetOnboarding } from "@/components/dashboard/onboarding-tour"
 
 export function DashboardNavbar({
   documents,
@@ -15,6 +16,7 @@ export function DashboardNavbar({
   onUpload,
   onDelete,
   activeDocId,
+  onTakeTour,
 }: {
   documents: DocumentItem[]
   loading?: boolean
@@ -22,12 +24,18 @@ export function DashboardNavbar({
   onUpload: (docId: string) => void
   onDelete: (docId: string) => void
   activeDocId: string | null
+  onTakeTour?: () => void
 }) {
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
   const router = useRouter()
 
   useEffect(() => { setMounted(true) }, [])
+
+  const handleTakeTour = () => {
+    resetOnboarding()
+    onTakeTour?.()
+  }
 
   const activeDoc = documents.find((d) => d.doc_id === activeDocId)
 
@@ -76,6 +84,16 @@ export function DashboardNavbar({
 
       {/* Right: actions */}
       <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleTakeTour}
+          className="hidden sm:flex h-8 gap-1.5 text-muted-foreground hover:text-foreground px-3"
+        >
+          <BookOpen className="w-4 h-4" />
+          <span className="text-sm">Tour</span>
+        </Button>
+
         <Button
           variant="ghost"
           size="icon"

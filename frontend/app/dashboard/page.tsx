@@ -6,15 +6,17 @@ import ChatPanel from "@/components/dashboard/chat-panel"
 import DashboardSidebar, { type DocumentItem } from "@/components/dashboard/sidebar"
 import { useAuth } from "@/lib/useAuth"
 import AuthDialog from "@/components/ui/auth-dialog"
-import { Bot } from "lucide-react"
+import { Bot, Plus } from "lucide-react"
 import UploadFAB from "@/components/ui/upload-fab"
 import { Button } from "@/components/ui/button"
-import { Plus } from "lucide-react"
+import OnboardingTour from "@/components/dashboard/onboarding-tour"
 
 export default function Dashboard() {
   const [docId, setDocId] = useState<string | null>(null)
   const [documents, setDocuments] = useState<DocumentItem[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(true)
+  const [tourKey, setTourKey] = useState(0)
+  const [apiKeyOpen, setApiKeyOpen] = useState(false)
   const { status } = useAuth()
 
   const handleUpload = (uploadedId: string | null) => {
@@ -87,6 +89,11 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col h-screen bg-background">
+      <OnboardingTour
+        key={tourKey}
+        triggerKey={tourKey}
+        onOpenApiKey={() => setApiKeyOpen(true)}
+      />
       <DashboardNavbar
         documents={documents}
         loading={documentsLoading}
@@ -94,6 +101,7 @@ export default function Dashboard() {
         onUpload={handleUpload}
         onDelete={handleDelete}
         activeDocId={docId}
+        onTakeTour={() => { setApiKeyOpen(false); setTourKey(k => k + 1) }}
       />
 
       <div className="flex flex-1 min-h-0">
@@ -106,6 +114,7 @@ export default function Dashboard() {
             onUpload={handleUpload}
             onDelete={handleDelete}
             activeDocId={docId}
+            forceApiKeyOpen={apiKeyOpen}
           />
         </aside>
 

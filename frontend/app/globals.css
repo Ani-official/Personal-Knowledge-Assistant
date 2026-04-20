@@ -1,4 +1,5 @@
 @import "tw-animate-css";
+@import "driver.js/dist/driver.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -314,4 +315,89 @@
     0% { transform: translateX(0) rotate(18deg); }
     100% { transform: translateX(240%) rotate(18deg); }
   }
+}
+
+/* ── Driver.js tour overrides ──────────────────────────────────────────── */
+.evidentia-popover {
+  background: var(--background) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 1rem !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18) !important;
+  padding: 1.25rem !important;
+  min-width: 280px !important;
+  max-width: 320px !important;
+}
+
+.evidentia-popover .driver-popover-title {
+  font-size: 0.9rem !important;
+  font-weight: 700 !important;
+  color: var(--foreground) !important;
+  margin-bottom: 0.4rem !important;
+}
+
+.evidentia-popover .driver-popover-description {
+  font-size: 0.8rem !important;
+  line-height: 1.65 !important;
+  color: var(--muted-foreground) !important;
+}
+
+.evidentia-popover .driver-popover-description strong {
+  color: var(--foreground) !important;
+  font-weight: 600 !important;
+}
+
+.evidentia-popover .driver-popover-footer {
+  margin-top: 1rem !important;
+  gap: 0.4rem !important;
+}
+
+.evidentia-popover .driver-popover-progress-text {
+  font-size: 0.72rem !important;
+  color: var(--muted-foreground) !important;
+}
+
+.evidentia-popover .driver-popover-next-btn {
+  background: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+  border: none !important;
+  border-radius: 0.55rem !important;
+  font-size: 0.78rem !important;
+  font-weight: 600 !important;
+  padding: 0.35rem 0.9rem !important;
+  cursor: pointer !important;
+}
+
+.evidentia-popover .driver-popover-next-btn:hover {
+  opacity: 0.9 !important;
+}
+
+.evidentia-popover .driver-popover-prev-btn {
+  background: transparent !important;
+  color: var(--muted-foreground) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 0.55rem !important;
+  font-size: 0.78rem !important;
+  font-weight: 500 !important;
+  padding: 0.35rem 0.75rem !important;
+  cursor: pointer !important;
+}
+
+.evidentia-popover .driver-popover-close-btn {
+  color: var(--muted-foreground) !important;
+  top: 0.85rem !important;
+  right: 0.85rem !important;
+  font-size: 1rem !important;
+}
+
+.evidentia-popover .driver-popover-arrow-side-left.driver-popover-arrow {
+  border-right-color: var(--border) !important;
+}
+.evidentia-popover .driver-popover-arrow-side-right.driver-popover-arrow {
+  border-left-color: var(--border) !important;
+}
+.evidentia-popover .driver-popover-arrow-side-top.driver-popover-arrow {
+  border-bottom-color: var(--border) !important;
+}
+.evidentia-popover .driver-popover-arrow-side-bottom.driver-popover-arrow {
+  border-top-color: var(--border) !important;
 }
