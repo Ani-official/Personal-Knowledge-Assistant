@@ -133,12 +133,51 @@ async def get_context_chunks(doc_id: str, query: str, top_k: int = 3) -> List[di
         return []
 
 
+async def _rerank(query: str, chunks: List[dict], top_n: int) -> List[dict]:
+    """
+    Cross-encoder re-ranking via Jina Reranker API.
+    Returns chunks re-ordered by relevance_score (descending), capped at top_n.
+    Reuses EMBEDDING_API_KEY and EMBEDDING_BASE_URL — Jina exposes both
+    embeddings and reranking under the same key and base URL.
+    """
+    import httpx
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{settings.EMBEDDING_BASE_URL}/rerank",
+            headers={"Authorization": f"Bearer {settings.EMBEDDING_API_KEY}"},
+            json={
+                "model": settings.RERANKER_MODEL,
+                "query": query,
+                "documents": [c["text"] for c in chunks],
+                "top_n": top_n,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    return [
+        {**chunks[r["index"]], "score": r["relevance_score"]}
+        for r in data["results"]
+    ]
+
+
 async def get_workspace_context_chunks(
-    doc_ids: List[str], query: str, top_k: int = 6
+    doc_ids: List[str], query: str, max_total: int = 20
 ) -> List[dict[str, Any]]:
     """
-    Retrieve top-k chunks across all provided doc_ids (workspace mode).
-    Returns chunks with doc_id included so callers can map back to filenames.
+    Three-phase retrieval for workspace mode.
+
+    Phase 1 — ANN candidate pool: fetch min(4 * n_docs, 80) chunks via Qdrant
+    so every document gets a realistic chance to surface relevant content.
+
+    Phase 2 — Cross-encoder re-ranking (when RERANKING_ENABLED): the Jina
+    reranker re-scores all candidates by reading query + chunk together,
+    producing accuracy far beyond bi-encoder cosine similarity. Falls back
+    gracefully to bi-encoder scores if the reranker call fails.
+
+    Phase 3 — Diversity enforcement: guarantee one slot per document whose
+    best candidate clears the relevance threshold, then fill remaining slots
+    by global score rank up to max_total.
     """
     if not doc_ids:
         return []
@@ -146,15 +185,17 @@ async def get_workspace_context_chunks(
         query_embeddings = await embed_texts([query])
         query_vector = query_embeddings[0]
 
+        candidate_k = min(4 * len(doc_ids), 80)
         results = await qdrant_client.search(
             collection_name=COLLECTION_NAME,
             query_vector=query_vector,
             query_filter=Filter(
                 must=[FieldCondition(key="source", match=MatchAny(any=doc_ids))]
             ),
-            limit=top_k,
+            limit=candidate_k,
         )
-        return [
+
+        candidates: list[dict] = [
             {
                 "text": hit.payload["text"],
                 "score": getattr(hit, "score", 0.0) or 0.0,
@@ -164,6 +205,45 @@ async def get_workspace_context_chunks(
             for hit in results
             if hit.payload and "text" in hit.payload
         ]
+
+        if not candidates:
+            return []
+
+        # Phase 2 — cross-encoder re-ranking
+        using_reranker = False
+        if settings.RERANKING_ENABLED:
+            try:
+                rerank_n = min(len(candidates), max_total + len(doc_ids))
+                candidates = await _rerank(query, candidates, top_n=rerank_n)
+                using_reranker = True
+                logger.info(f"[Reranker] scored {len(candidates)} candidates for workspace query")
+            except Exception as e:
+                logger.warning(f"[Reranker] failed, falling back to bi-encoder scores: {e}")
+
+        # Phase 3 — diversity enforcement using whichever scores are available
+        score_threshold = settings.RERANKER_MIN_SCORE if using_reranker else MIN_CONTEXT_SCORE
+
+        # candidates is already sorted by score (Qdrant ANN or reranker both return sorted)
+        by_doc: dict[str, list] = {}
+        for c in candidates:
+            by_doc.setdefault(c["doc_id"], []).append(c)
+
+        selected: list[dict] = []
+        remainder: list[dict] = []
+
+        for chunks in by_doc.values():
+            best = chunks[0]
+            if best["score"] >= score_threshold:
+                selected.append(best)
+                remainder.extend(chunks[1:])
+            else:
+                remainder.extend(chunks)
+
+        remainder.sort(key=lambda x: x["score"], reverse=True)
+        selected.extend(remainder[: max(0, max_total - len(selected))])
+        selected.sort(key=lambda x: x["score"], reverse=True)
+        return selected[:max_total]
+
     except Exception as e:
         logger.exception(f"[FAILED] Workspace retrieval for query='{query}': {e}")
         return []

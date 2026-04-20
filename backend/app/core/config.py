@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "jina-embeddings-v3"
     VECTOR_SIZE: int = 1024  # jina-embeddings-v3 default; use 1536 for OpenAI text-embedding-3-small
 
+    # Reranker — reuses EMBEDDING_API_KEY and EMBEDDING_BASE_URL (Jina provides both)
+    # Set RERANKING_ENABLED=false to disable if using a non-Jina embedding provider
+    RERANKING_ENABLED: bool = True
+    RERANKER_MODEL: str = "jina-reranker-v2-base-multilingual"
+    RERANKER_MIN_SCORE: float = 0.1  # cross-encoder scores differ from cosine; 0.1 filters truly irrelevant
+
     # Cookie settings (use secure=True + samesite=None in production)
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "Lax"

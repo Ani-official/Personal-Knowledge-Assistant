@@ -83,7 +83,7 @@ async def chat_with_doc(
         doc_id_to_filename = {d.doc_id: d.filename for d in user_docs}
         doc_ids = list(doc_id_to_filename.keys())
 
-        matches = await get_workspace_context_chunks(doc_ids, question, top_k=6)
+        matches = await get_workspace_context_chunks(doc_ids, question)
 
         if not matches or not has_sufficient_context(matches):
             return StreamingResponse(
