@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
@@ -7,25 +7,23 @@ import {
   Bot,
   User,
   Send,
-  Trash2,
   ChevronDown,
   Key,
   X,
   Copy,
   Check,
   MessagesSquare,
+  Plus,
 } from "lucide-react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { ModelSelector } from "./model-selector"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import type { ChatMessage, ConversationDetail, ConversationSummary, Source } from "./types"
 
 const FREE_CHAT_LIMIT = 5
 const FREE_CHAT_COUNT_KEY = "knowai-free-chat-count"
-
-type Source = { doc_id: string; filename: string; score: number }
-type ChatMessage = { type: "user" | "ai"; text: string; sources?: Source[] }
 
 function hasOwnApiKey(): boolean {
   if (typeof window === "undefined") return false
@@ -230,12 +228,40 @@ function MarkdownMessage({
   )
 }
 
-export default function ChatPanel({ docId }: { docId: string | null }) {
+function toChatMessages(detail: ConversationDetail): ChatMessage[] {
+  return detail.messages.map((message) => ({
+    type: message.role === "user" ? "user" : "ai",
+    text: message.content,
+    sources: message.role === "ai" ? message.sources : undefined,
+  }))
+}
+
+export default function ChatPanel({
+  docId,
+  activeConversationId,
+  activeConversation,
+  onConversationActivated,
+  onConversationChanged,
+  onStartNewChat,
+}: {
+  docId: string | null
+  activeConversationId: string | null
+  activeConversation: ConversationSummary | null
+  onConversationActivated: (conversation: Pick<ConversationSummary, "id" | "scope" | "doc_id">) => void
+  onConversationChanged: () => Promise<ConversationSummary[]>
+  onStartNewChat: () => void
+}) {
   const isWorkspace = docId === null
-  const storageKey = isWorkspace ? "chat-messages-workspace" : `chat-messages-${docId}`
+  const draftKey = activeConversationId
+    ? `chat-draft-${activeConversationId}`
+    : isWorkspace
+      ? "chat-draft-workspace"
+      : `chat-draft-${docId}`
+
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
+  const [conversationLoading, setConversationLoading] = useState(false)
   const [aiTyping, setAiTyping] = useState("")
   const [selectedModel, setSelectedModel] = useState(
     () =>
@@ -257,17 +283,60 @@ export default function ChatPanel({ docId }: { docId: string | null }) {
   }, [])
 
   useEffect(() => {
-    const stored = localStorage.getItem(storageKey)
-    setMessages(stored ? JSON.parse(stored) : [])
-    setInput("")
-    setAiTyping("")
-  }, [storageKey])
+    const storedDraft = localStorage.getItem(draftKey) ?? ""
+    setInput(storedDraft)
+  }, [draftKey])
 
   useEffect(() => {
-    if (messages.length > 0) {
-      localStorage.setItem(storageKey, JSON.stringify(messages))
+    if (input.trim()) {
+      localStorage.setItem(draftKey, input)
+    } else {
+      localStorage.removeItem(draftKey)
     }
-  }, [messages, storageKey])
+  }, [draftKey, input])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadConversation = async () => {
+      if (!activeConversationId) {
+        setMessages([])
+        setConversationLoading(false)
+        return
+      }
+
+      setConversationLoading(true)
+      try {
+        const token = localStorage.getItem("token")
+        const res = await fetch(`${apiBase}/conversations/${activeConversationId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          credentials: token ? "omit" : "include",
+        })
+
+        if (!res.ok) throw new Error("Failed to load conversation")
+
+        const detail = (await res.json()) as ConversationDetail
+        if (!cancelled) {
+          setMessages(toChatMessages(detail))
+        }
+      } catch {
+        if (!cancelled) {
+          setMessages([])
+          toast.error("Could not load conversation history.")
+        }
+      } finally {
+        if (!cancelled) {
+          setConversationLoading(false)
+        }
+      }
+    }
+
+    void loadConversation()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeConversationId, apiBase])
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -287,27 +356,21 @@ export default function ChatPanel({ docId }: { docId: string | null }) {
     ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`
   }
 
-  const clearConversation = () => {
-    setMessages([])
-    setAiTyping("")
-    localStorage.removeItem(storageKey)
-  }
-
   const sendMessage = async () => {
     const trimmed = input.trim()
-    if (!trimmed || loading) return
+    if (!trimmed || loading || activeConversation?.document_deleted) return
 
     const userMessage: ChatMessage = { type: "user", text: trimmed }
     setMessages((prev) => [...prev, userMessage])
     setInput("")
     setAiTyping(" ")
     setLoading(true)
+    localStorage.removeItem(draftKey)
 
     if (textareaRef.current) textareaRef.current.style.height = "auto"
 
     try {
       const token = localStorage.getItem("token")
-
       const res = await fetch(`${apiBase}/chat/`, {
         method: "POST",
         headers: {
@@ -317,10 +380,20 @@ export default function ChatPanel({ docId }: { docId: string | null }) {
         credentials: token ? "omit" : "include",
         body: JSON.stringify({
           ...(isWorkspace ? { scope: "workspace" } : { scope: "document", doc_id: docId }),
+          ...(activeConversationId ? { conversation_id: activeConversationId } : {}),
           question: trimmed,
           model: selectedModel,
         }),
       })
+
+      const nextConversationId = res.headers.get("X-Conversation-Id")
+      if (nextConversationId && nextConversationId !== activeConversationId) {
+        onConversationActivated({
+          id: nextConversationId,
+          scope: isWorkspace ? "workspace" : "document",
+          doc_id: docId,
+        })
+      }
 
       if (res.headers.get("X-Fallback-Key") === "true" && !hasOwnApiKey()) {
         const count = incrementFreeCount()
@@ -333,18 +406,26 @@ export default function ChatPanel({ docId }: { docId: string | null }) {
       const decoder = new TextDecoder()
       let aiResponse = ""
       let pendingSources: Source[] = []
+      let finalized = false
       setAiTyping("")
+
+      const finalizeMessage = async () => {
+        if (finalized) return
+        finalized = true
+        if (aiResponse.trim()) {
+          setMessages((prev) => [
+            ...prev,
+            { type: "ai", text: normalizeMarkdownText(aiResponse), sources: pendingSources },
+          ])
+        }
+        setAiTyping("")
+        await onConversationChanged()
+      }
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) {
-          if (aiResponse) {
-            setMessages((prev) => [
-              ...prev,
-              { type: "ai", text: normalizeMarkdownText(aiResponse), sources: pendingSources },
-            ])
-            setAiTyping("")
-          }
+          await finalizeMessage()
           break
         }
         const chunk = decoder.decode(value, { stream: true })
@@ -355,11 +436,7 @@ export default function ChatPanel({ docId }: { docId: string | null }) {
           if (!data) continue
 
           if (data === "[DONE]") {
-            setMessages((prev) => [
-              ...prev,
-              { type: "ai", text: normalizeMarkdownText(aiResponse), sources: pendingSources },
-            ])
-            setAiTyping("")
+            await finalizeMessage()
             return
           }
 
@@ -368,11 +445,13 @@ export default function ChatPanel({ docId }: { docId: string | null }) {
             if (parsed?.error) {
               toast.error("Model error. Try a different model or shorten the document.")
               setAiTyping("")
+              await onConversationChanged()
               return
             }
             if (parsed?.rate_limit) {
               toast.error("Rate limit reached. Please try again later or add your own OpenRouter API key.")
               setAiTyping("")
+              await onConversationChanged()
               return
             }
             if (parsed?.sources) {
@@ -405,20 +484,24 @@ export default function ChatPanel({ docId }: { docId: string | null }) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
-      sendMessage()
+      void sendMessage()
     }
   }
 
+  const showConversationHeader = activeConversationId !== null || messages.length > 0
+
   return (
     <div className="flex h-full flex-col">
-      {messages.length > 0 && (
+      {showConversationHeader && (
         <div className="flex shrink-0 items-center justify-between border-b border-border/50 px-4 py-3">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-border/60 bg-card/80 shadow-sm">
               <MessagesSquare className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <p className="font-medium text-foreground">Conversation</p>
+              <p className="font-medium text-foreground">
+                {activeConversation?.title ?? "Conversation"}
+              </p>
               <p className="text-xs text-muted-foreground">
                 {isWorkspace ? "Grounded answers across all your documents" : "Grounded answers from your selected document"}
               </p>
@@ -427,11 +510,11 @@ export default function ChatPanel({ docId }: { docId: string | null }) {
           <Button
             variant="outline"
             size="sm"
-            onClick={clearConversation}
+            onClick={onStartNewChat}
             className="rounded-full border-border/70 bg-background/70 px-3 text-xs text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"
           >
-            <Trash2 className="h-3.5 w-3.5" />
-            Clear chat
+            <Plus className="h-3.5 w-3.5" />
+            Start new chat
           </Button>
         </div>
       )}
@@ -441,7 +524,12 @@ export default function ChatPanel({ docId }: { docId: string | null }) {
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto scrollbar-thin"
       >
-        {messages.length === 0 && !aiTyping ? (
+        {conversationLoading ? (
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Loading conversation...
+          </div>
+        ) : messages.length === 0 && !aiTyping ? (
           <div className="flex h-full flex-col items-center justify-center p-6 text-center">
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
               <Bot className="h-7 w-7 text-primary" />
@@ -454,18 +542,18 @@ export default function ChatPanel({ docId }: { docId: string | null }) {
             </p>
             <div className="mt-6 flex w-full max-w-xs flex-col gap-2">
               {(isWorkspace
-                ? ["Summarize what my documents say about…", "Which files mention…?", "Compare the guidance across documents"]
+                ? ["Summarize what my documents say about...", "Which files mention...?", "Compare the guidance across documents"]
                 : ["Summarize this document", "What are the key points?", "Explain the main topic"]
-              ).map((q) => (
+              ).map((question) => (
                 <button
-                  key={q}
+                  key={question}
                   onClick={() => {
-                    setInput(q)
+                    setInput(question)
                     textareaRef.current?.focus()
                   }}
                   className="rounded-xl border border-border/60 px-4 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent/40 hover:text-foreground"
                 >
-                  {q}
+                  {question}
                 </button>
               ))}
             </div>
@@ -537,6 +625,11 @@ export default function ChatPanel({ docId }: { docId: string | null }) {
 
       <div className="shrink-0 border-t border-border/50 bg-background p-4">
         <div className="mx-auto max-w-3xl">
+          {activeConversation?.document_deleted && (
+            <div className="mb-3 rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              This conversation is read-only because its source document was deleted.
+            </div>
+          )}
           <div className="relative flex flex-col rounded-2xl border border-border/60 bg-muted/50 shadow-sm transition-all focus-within:border-primary/50 focus-within:bg-background">
             <textarea
               ref={textareaRef}
@@ -546,9 +639,13 @@ export default function ChatPanel({ docId }: { docId: string | null }) {
                 adjustHeight()
               }}
               onKeyDown={handleKeyDown}
-              placeholder={isWorkspace ? "Ask anything across your documents… (Shift+Enter for new line)" : "Ask anything about your document… (Shift+Enter for new line)"}
+              placeholder={activeConversation?.document_deleted
+                ? "This conversation is read-only because the document was removed."
+                : isWorkspace
+                  ? "Ask anything across your documents... (Shift+Enter for new line)"
+                  : "Ask anything about your document... (Shift+Enter for new line)"}
               rows={1}
-              disabled={loading}
+              disabled={loading || conversationLoading || activeConversation?.document_deleted}
               className="max-h-40 w-full resize-none overflow-y-auto bg-transparent px-4 pt-3.5 pb-2 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/60 disabled:opacity-60 scrollbar-thin"
             />
             <div className="flex items-center justify-between px-3 pb-2.5">
@@ -561,8 +658,8 @@ export default function ChatPanel({ docId }: { docId: string | null }) {
                 />
               </div>
               <Button
-                onClick={sendMessage}
-                disabled={loading || !input.trim()}
+                onClick={() => void sendMessage()}
+                disabled={loading || conversationLoading || !input.trim() || activeConversation?.document_deleted}
                 size="icon"
                 className="h-8 w-8 shrink-0 rounded-xl shadow-sm shadow-primary/20"
               >
@@ -629,13 +726,13 @@ function MessageBubble({ type, text, sources }: ChatMessage) {
         {sources && sources.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 px-1">
             <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">Sources</span>
-            {sources.map((s) => (
+            {sources.map((source) => (
               <span
-                key={s.doc_id}
-                title={s.filename}
+                key={`${source.doc_id}-${source.filename}`}
+                title={source.filename}
                 className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/60 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground"
               >
-                <span className="max-w-[160px] truncate">{s.filename}</span>
+                <span className="max-w-[160px] truncate">{source.filename}</span>
               </span>
             ))}
           </div>
@@ -644,3 +741,4 @@ function MessageBubble({ type, text, sources }: ChatMessage) {
     </div>
   )
 }
+
