@@ -41,6 +41,8 @@ export function DashboardNavbar({
   activeConversationId,
   onTakeTour,
   userEmail,
+  readerOpen = false,
+  onCloseReader,
 }: {
   documents: DocumentItem[]
   conversations: ConversationSummary[]
@@ -58,6 +60,8 @@ export function DashboardNavbar({
   activeConversationId: string | null
   onTakeTour?: () => void
   userEmail: string | null
+  readerOpen?: boolean
+  onCloseReader?: () => void
 }) {
   const [mounted, setMounted] = useState(false)
 
@@ -123,8 +127,24 @@ export function DashboardNavbar({
 
       </div>
 
-      <div className="flex min-w-0 max-w-[60%] shrink items-center gap-2 rounded-full border border-border/60 bg-card/70 px-3 py-1.5 text-sm shadow-sm">
-        {scopePill}
+      <div className="flex min-w-0 shrink items-center gap-2">
+        <div className="flex min-w-0 max-w-[420px] shrink items-center gap-2 rounded-full border border-border/60 bg-card/70 px-3 py-1.5 text-sm shadow-sm">
+          {scopePill}
+        </div>
+
+        {readerOpen && onCloseReader && (
+          <div className="hidden shrink-0 items-center rounded-full border border-border/60 bg-card/70 p-0.5 text-xs shadow-sm md:flex">
+            <button
+              onClick={onCloseReader}
+              className="rounded-full px-2.5 py-1 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Chat
+            </button>
+            <span className="rounded-full bg-primary px-2.5 py-1 font-medium text-primary-foreground">
+              Split
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="flex min-w-0 flex-1 items-center justify-end gap-1">

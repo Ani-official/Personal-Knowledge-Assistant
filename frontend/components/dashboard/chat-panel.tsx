@@ -14,6 +14,7 @@ import {
   Plus,
   ArrowUp,
   ArrowRight,
+  ChevronRight,
 } from "lucide-react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -245,6 +246,7 @@ export default function ChatPanel({
   onConversationActivated,
   onConversationChanged,
   onUpload,
+  onOpenSource,
 }: {
   docId: string | null
   documentName: string | null
@@ -253,6 +255,8 @@ export default function ChatPanel({
   onConversationActivated: (conversation: Pick<ConversationSummary, "id" | "scope" | "doc_id">) => void
   onConversationChanged: () => Promise<ConversationSummary[]>
   onUpload: (docId: string) => void
+  /** Opens the reader pane at the passage an answer was grounded in. */
+  onOpenSource: (source: Source) => void
 }) {
   const isWorkspace = docId === null
   const draftKey = activeConversationId
@@ -552,7 +556,13 @@ export default function ChatPanel({
         ) : (
           <div className="mx-auto max-w-4xl space-y-8 px-5 py-8">
             {messages.map((msg, i) => (
-              <MessageBubble key={i} type={msg.type} text={msg.text} sources={msg.sources} />
+              <MessageBubble
+                key={i}
+                type={msg.type}
+                text={msg.text}
+                sources={msg.sources}
+                onOpenSource={onOpenSource}
+              />
             ))}
 
             {aiTyping && (
@@ -712,7 +722,92 @@ function Avatar({ type }: { type: "user" | "ai" }) {
   )
 }
 
-function MessageBubble({ type, text, sources }: ChatMessage) {
+/**
+ * The passages the answer was grounded in. Collapsed by default so the answer
+ * stays the focus, and every row opens the reader at that exact passage.
+ */
+function Evidence({
+  sources,
+  onOpenSource,
+}: {
+  sources: Source[]
+  onOpenSource: (source: Source) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const citable = sources.filter((source) => source.text)
+
+  if (citable.length === 0) {
+    // Older answers were stored before passages were kept; name the files at least.
+    return (
+      <div className="flex flex-wrap items-center gap-1.5 px-1">
+        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
+          Sources
+        </span>
+        {sources.map((source) => (
+          <span
+            key={`${source.doc_id}-${source.filename}`}
+            title={source.filename}
+            className="inline-flex max-w-[180px] truncate rounded-full border border-border/60 bg-muted/60 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+          >
+            {source.filename}
+          </span>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-1">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 transition-colors hover:text-foreground"
+      >
+        <ChevronRight className={cn("size-3 transition-transform", open && "rotate-90")} />
+        Evidence
+        <span className="font-normal normal-case tracking-normal text-muted-foreground/60">
+          {citable.length} {citable.length === 1 ? "passage" : "passages"}
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-1.5">
+          {citable.map((source, index) => (
+            <button
+              key={`${source.doc_id}-${source.page ?? "x"}-${index}`}
+              onClick={() => onOpenSource(source)}
+              className="group block w-full rounded-lg border border-border/60 bg-card/50 py-2.5 pl-3 pr-3 text-left transition-colors hover:border-primary/40 hover:bg-accent/30"
+            >
+              <span className="flex items-baseline justify-between gap-3">
+                <span className="min-w-0 truncate text-[12px] font-medium text-primary">
+                  {source.filename}
+                  {source.page ? ` · page ${source.page}` : ""}
+                </span>
+                <span className="shrink-0 text-[11px] text-muted-foreground/70 group-hover:text-primary">
+                  {source.page ? "Open page" : `${Math.round(source.score * 100)}% match`}
+                </span>
+              </span>
+              <span className="mt-1 block text-[13px] leading-6 text-muted-foreground">
+                &ldquo;{truncatePassage(source.text ?? "")}&rdquo;
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function truncatePassage(text: string, limit = 240) {
+  const clean = text.replace(/\s+/g, " ").trim()
+  return clean.length > limit ? `${clean.slice(0, limit).replace(/\s+\S*$/, "")}…` : clean
+}
+
+function MessageBubble({
+  type,
+  text,
+  sources,
+  onOpenSource,
+}: ChatMessage & { onOpenSource: (source: Source) => void }) {
   if (type === "user") {
     return (
       <div className="flex justify-end gap-3">
@@ -740,20 +835,7 @@ function MessageBubble({ type, text, sources }: ChatMessage) {
             <MarkdownMessage text={text} />
           </div>
         </div>
-        {sources && sources.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 px-1">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">Sources</span>
-            {sources.map((source) => (
-              <span
-                key={`${source.doc_id}-${source.filename}`}
-                title={source.filename}
-                className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/60 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground"
-              >
-                <span className="max-w-[160px] truncate">{source.filename}</span>
-              </span>
-            ))}
-          </div>
-        )}
+        {sources && sources.length > 0 && <Evidence sources={sources} onOpenSource={onOpenSource} />}
       </div>
     </div>
   )

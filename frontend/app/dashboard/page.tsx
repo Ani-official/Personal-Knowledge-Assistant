@@ -4,7 +4,8 @@ import { useState, useEffect } from "react"
 import { DashboardNavbar } from "@/components/dashboard/navbar"
 import ChatPanel from "@/components/dashboard/chat-panel"
 import DashboardSidebar from "@/components/dashboard/sidebar"
-import type { ConversationSummary, DocumentItem } from "@/components/dashboard/types"
+import type { ConversationSummary, DocumentItem, Source } from "@/components/dashboard/types"
+import DocumentReader, { type ReaderTarget } from "@/components/dashboard/document-reader"
 import { useAuth } from "@/lib/useAuth"
 import AuthDialog from "@/components/ui/auth-dialog"
 import { Bot, Plus } from "lucide-react"
@@ -23,6 +24,7 @@ export default function Dashboard() {
   const [tourKey, setTourKey] = useState(0)
   const [apiKeyOpen, setApiKeyOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [readerTarget, setReaderTarget] = useState<ReaderTarget | null>(null)
   const { status, email } = useAuth()
 
   const getAuthHeaders = () => {
@@ -88,14 +90,17 @@ export default function Dashboard() {
   }
 
   const handleSelectDocument = (selectedDocId: string | null) => {
+    setReaderTarget(null)
     setScopeState(selectedDocId, null)
   }
 
   const handleSelectWorkspace = () => {
+    setReaderTarget(null)
     setScopeState(null, null)
   }
 
   const handleSelectConversation = (conversationId: string) => {
+    setReaderTarget(null)
     const conversation = conversations.find((item) => item.id === conversationId)
     if (!conversation) {
       setScopeState(docId, conversationId)
@@ -179,6 +184,11 @@ export default function Dashboard() {
   useEffect(() => {
     setSidebarCollapsed(localStorage.getItem("sidebarCollapsed") === "1")
   }, [])
+
+  const handleOpenSource = (source: Source) => {
+    if (!source.page) return
+    setReaderTarget({ docId: source.doc_id, page: source.page, highlight: source.text })
+  }
 
   const applySidebarCollapsed = (next: boolean) => {
     setSidebarCollapsed(next)
@@ -282,6 +292,8 @@ export default function Dashboard() {
           activeDocId={docId}
           activeConversationId={activeConversationId}
           userEmail={email}
+          readerOpen={readerTarget !== null}
+          onCloseReader={() => setReaderTarget(null)}
           onTakeTour={() => {
             setApiKeyOpen(false)
             setTourKey((key) => key + 1)
@@ -310,16 +322,33 @@ export default function Dashboard() {
               <p className="mt-4 text-xs text-muted-foreground/60">PDF, TXT, MD, HTML · Max 10 MB</p>
             </div>
           ) : (
-            <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-              <ChatPanel
-                docId={docId}
-                documentName={documents.find((doc) => doc.doc_id === docId)?.filename ?? null}
-                onUpload={handleUpload}
-                activeConversationId={activeConversationId}
-                activeConversation={activeConversation}
-                onConversationActivated={handleConversationActivated}
-                onConversationChanged={fetchConversations}
-              />
+            <div className="flex min-h-0 flex-1">
+              <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                <ChatPanel
+                  docId={docId}
+                  documentName={documents.find((doc) => doc.doc_id === docId)?.filename ?? null}
+                  onUpload={handleUpload}
+                  activeConversationId={activeConversationId}
+                  activeConversation={activeConversation}
+                  onConversationActivated={handleConversationActivated}
+                  onConversationChanged={fetchConversations}
+                  onOpenSource={handleOpenSource}
+                />
+              </div>
+
+              {readerTarget && (
+                <div className="hidden min-h-0 w-[46%] min-w-0 max-w-[620px] md:flex">
+                  <DocumentReader
+                    target={readerTarget}
+                    onClose={() => setReaderTarget(null)}
+                    onNavigate={(page) =>
+                      setReaderTarget((current) =>
+                        current ? { ...current, page, highlight: undefined } : current
+                      )
+                    }
+                  />
+                </div>
+              )}
             </div>
           )}
         </main>

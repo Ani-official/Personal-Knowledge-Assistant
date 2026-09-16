@@ -11,6 +11,7 @@ from sqlalchemy import update
 
 from app.utils.compression import decompress_text
 from app.models.document import Document
+from app.models.document_page import DocumentPage
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.services.vector_store import qdrant_client, COLLECTION_NAME
@@ -40,6 +41,22 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]
     return chunks
 
 
+def chunk_pages(pages: List[str], chunk_size: int = 500, overlap: int = 50) -> List[dict]:
+    """
+    Chunk each page independently so every chunk carries the page it came from.
+    Chunking across a page boundary would make the citation ambiguous, which is
+    the whole thing the reader pane exists to avoid.
+    """
+    chunked: List[dict] = []
+    for page_index, page_text in enumerate(pages):
+        if not page_text.strip():
+            continue
+        for piece in chunk_text(page_text, chunk_size, overlap):
+            if piece.strip():
+                chunked.append({"text": piece, "page": page_index + 1})
+    return chunked
+
+
 async def embed_texts(texts: List[str], batch_size: int = 96) -> List[List[float]]:
     """Embed texts in batches to respect Jina AI's per-request item limit."""
     embeddings: List[List[float]] = []
@@ -50,42 +67,58 @@ async def embed_texts(texts: List[str], batch_size: int = 96) -> List[List[float
     return embeddings
 
 
-async def embed_and_store(compressed_text: bytes, doc_id: str):
+async def embed_and_store(compressed_pages: List[bytes], doc_id: str, page_label: str = "page"):
     """
-    Decompress, chunk, embed via OpenAI, and upsert into Qdrant.
+    Decompress each page, chunk it, embed via OpenAI, and upsert into Qdrant.
+
+    Page text is also persisted to document_pages so the reader can show the
+    passage in context — the uploaded file itself is never kept.
     Updates Document status to 'done' on success or 'failed' on error.
     """
     try:
-        text = decompress_text(compressed_text)
-        if not text or not text.strip():
+        pages = [decompress_text(page) for page in compressed_pages]
+        if not any(page.strip() for page in pages):
             raise ValueError(f"No extractable text found in document {doc_id}")
 
-        chunks = chunk_text(text)
-        if not chunks:
+        chunked = chunk_pages(pages)
+        if not chunked:
             raise ValueError(f"Text chunking produced no chunks for document {doc_id}")
 
-        embeddings = await embed_texts(chunks)
+        embeddings = await embed_texts([c["text"] for c in chunked])
 
         points = [
             PointStruct(
                 id=str(uuid.uuid4()),
                 vector=embedding,
-                payload={"source": doc_id, "chunk": i, "text": chunk},
+                payload={
+                    "source": doc_id,
+                    "chunk": i,
+                    "text": chunk["text"],
+                    "page": chunk["page"],
+                },
             )
-            for i, (chunk, embedding) in enumerate(zip(chunks, embeddings))
+            for i, (chunk, embedding) in enumerate(zip(chunked, embeddings))
         ]
 
         for i in range(0, len(points), 50):
             await qdrant_client.upsert(collection_name=COLLECTION_NAME, points=points[i : i + 50])
 
         async with AsyncSessionLocal() as session:
+            session.add_all(
+                DocumentPage(doc_id=doc_id, page_number=number, text=text)
+                for number, text in enumerate(pages, start=1)
+            )
             await session.execute(
-                update(Document).where(Document.doc_id == doc_id).values(status="done")
+                update(Document)
+                .where(Document.doc_id == doc_id)
+                .values(status="done", page_count=len(pages), page_label=page_label)
             )
             await session.commit()
 
         _processing_errors.pop(doc_id, None)
-        logger.info(f"[OK] Stored {len(points)} embeddings for doc_id={doc_id}")
+        logger.info(
+            f"[OK] Stored {len(points)} embeddings across {len(pages)} pages for doc_id={doc_id}"
+        )
 
     except Exception as e:
         cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
@@ -123,6 +156,7 @@ async def get_context_chunks(doc_id: str, query: str, top_k: int = 3) -> List[di
                 "text": hit.payload["text"],
                 "score": getattr(hit, "score", 0.0) or 0.0,
                 "chunk": hit.payload.get("chunk"),
+                "page": hit.payload.get("page"),
             }
             for hit in results
             if hit.payload and "text" in hit.payload
@@ -201,6 +235,7 @@ async def get_workspace_context_chunks(
                 "score": getattr(hit, "score", 0.0) or 0.0,
                 "doc_id": hit.payload.get("source"),
                 "chunk": hit.payload.get("chunk"),
+                "page": hit.payload.get("page"),
             }
             for hit in results
             if hit.payload and "text" in hit.payload
