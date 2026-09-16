@@ -6,18 +6,19 @@ import {
   Loader2,
   Bot,
   User,
-  Send,
   ChevronDown,
   Key,
   X,
   Copy,
   Check,
-  MessagesSquare,
   Plus,
+  ArrowUp,
+  ArrowRight,
 } from "lucide-react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { ModelSelector } from "./model-selector"
+import UploadFAB from "@/components/ui/upload-fab"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import type { ChatMessage, ConversationDetail, ConversationSummary, Source } from "./types"
@@ -238,18 +239,20 @@ function toChatMessages(detail: ConversationDetail): ChatMessage[] {
 
 export default function ChatPanel({
   docId,
+  documentName,
   activeConversationId,
   activeConversation,
   onConversationActivated,
   onConversationChanged,
-  onStartNewChat,
+  onUpload,
 }: {
   docId: string | null
+  documentName: string | null
   activeConversationId: string | null
   activeConversation: ConversationSummary | null
   onConversationActivated: (conversation: Pick<ConversationSummary, "id" | "scope" | "doc_id">) => void
   onConversationChanged: () => Promise<ConversationSummary[]>
-  onStartNewChat: () => void
+  onUpload: (docId: string) => void
 }) {
   const isWorkspace = docId === null
   const draftKey = activeConversationId
@@ -488,37 +491,8 @@ export default function ChatPanel({
     }
   }
 
-  const showConversationHeader = activeConversationId !== null || messages.length > 0
-
   return (
     <div className="flex h-full flex-col">
-      {showConversationHeader && (
-        <div className="flex shrink-0 items-center justify-between border-b border-border/50 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-border/60 bg-card/80 shadow-sm">
-              <MessagesSquare className="h-4 w-4 text-primary" />
-            </div>
-            <div>
-              <p className="font-medium text-foreground">
-                {activeConversation?.title ?? "Conversation"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {isWorkspace ? "Grounded answers across all your documents" : "Grounded answers from your selected document"}
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onStartNewChat}
-            className="rounded-full border-border/70 bg-background/70 px-3 text-xs text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Start new chat
-          </Button>
-        </div>
-      )}
-
       <div
         ref={scrollAreaRef}
         onScroll={handleScroll}
@@ -530,30 +504,47 @@ export default function ChatPanel({
             Loading conversation...
           </div>
         ) : messages.length === 0 && !aiTyping ? (
-          <div className="flex h-full flex-col items-center justify-center p-6 text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
-              <Bot className="h-7 w-7 text-primary" />
-            </div>
-            <h3 className="mb-2 text-lg font-semibold">{isWorkspace ? "Ask across all documents" : "Ask anything"}</h3>
-            <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
-              {isWorkspace
-                ? "Ask a question and I'll search across your entire document library for grounded answers."
-                : "I've read your document. Ask me about it and I'll stay grounded in the uploaded content."}
+          <div className="mx-auto flex h-full max-w-2xl flex-col justify-center px-6 py-10">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
+              Grounded in {isWorkspace ? "all documents" : (documentName ?? "this document")}
             </p>
-            <div className="mt-6 flex w-full max-w-xs flex-col gap-2">
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+              {isWorkspace ? "Ask anything across your documents" : "Ask anything about this document"}
+            </h2>
+            <p className="mt-3 max-w-lg text-[15px] leading-relaxed text-muted-foreground">
+              {isWorkspace
+                ? "Every answer cites the files it came from, so you can check the source before you trust it."
+                : "Every answer cites the passages it came from, so you can check the source before you trust it."}
+            </p>
+
+            <div className="mt-8 flex flex-col gap-2.5">
               {(isWorkspace
-                ? ["Summarize what my documents say about...", "Which files mention...?", "Compare the guidance across documents"]
-                : ["Summarize this document", "What are the key points?", "Explain the main topic"]
-              ).map((question) => (
+                ? [
+                    { label: "Overview", question: "Summarize what my documents say about..." },
+                    { label: "Find", question: "Which files mention...?" },
+                    { label: "Compare", question: "Compare the guidance across documents" },
+                  ]
+                : [
+                    { label: "Overview", question: "Summarize this document" },
+                    { label: "Extract", question: "What are the key points?" },
+                    { label: "Explain", question: "Explain the main topic" },
+                  ]
+              ).map(({ label, question }) => (
                 <button
                   key={question}
                   onClick={() => {
                     setInput(question)
                     textareaRef.current?.focus()
                   }}
-                  className="rounded-xl border border-border/60 px-4 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent/40 hover:text-foreground"
+                  className="group flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-card/40 px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
                 >
-                  {question}
+                  <span className="min-w-0">
+                    <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
+                      {label}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[15px] font-medium">{question}</span>
+                  </span>
+                  <ArrowRight className="size-4 shrink-0 text-muted-foreground/50 transition-all group-hover:translate-x-0.5 group-hover:text-primary" />
                 </button>
               ))}
             </div>
@@ -642,37 +633,63 @@ export default function ChatPanel({
               placeholder={activeConversation?.document_deleted
                 ? "This conversation is read-only because the document was removed."
                 : isWorkspace
-                  ? "Ask anything across your documents... (Shift+Enter for new line)"
-                  : "Ask anything about your document... (Shift+Enter for new line)"}
+                  ? "Ask a question across all documents..."
+                  : "Ask a question about " + (documentName ?? "this document") + "..."}
               rows={1}
               disabled={loading || conversationLoading || activeConversation?.document_deleted}
               className="max-h-40 w-full resize-none overflow-y-auto bg-transparent px-4 pt-3.5 pb-2 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/60 disabled:opacity-60 scrollbar-thin"
             />
-            <div className="flex items-center justify-between px-3 pb-2.5">
-              <div className="max-w-[200px]">
-                <ModelSelector
-                  onChange={(model) => {
-                    setSelectedModel(model)
-                    localStorage.setItem("selected-model", model)
-                  }}
+            <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="max-w-[200px]">
+                  <ModelSelector
+                    onChange={(model) => {
+                      setSelectedModel(model)
+                      localStorage.setItem("selected-model", model)
+                    }}
+                  />
+                </div>
+                <UploadFAB
+                  onUpload={onUpload}
+                  trigger={
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      title="Upload a document"
+                      className="size-8 shrink-0 rounded-lg border-border/70 bg-background/60 text-muted-foreground hover:text-foreground"
+                    >
+                      <Plus className="size-4" />
+                      <span className="sr-only">Upload a document</span>
+                    </Button>
+                  }
                 />
               </div>
-              <Button
-                onClick={() => void sendMessage()}
-                disabled={loading || conversationLoading || !input.trim() || activeConversation?.document_deleted}
-                size="icon"
-                className="h-8 w-8 shrink-0 rounded-xl shadow-sm shadow-primary/20"
-              >
-                {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </Button>
+
+              <div className="flex shrink-0 items-center gap-2.5">
+                <span className="hidden text-[11px] text-muted-foreground/60 sm:inline">
+                  Shift + Enter for new line
+                </span>
+                <Button
+                  onClick={() => void sendMessage()}
+                  disabled={loading || conversationLoading || !input.trim() || activeConversation?.document_deleted}
+                  size="icon"
+                  className="size-8 shrink-0 rounded-lg shadow-sm shadow-primary/20"
+                >
+                  {loading ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <ArrowUp className="size-4" />
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
-          <p className="mt-2 text-center text-[11px] text-muted-foreground/50">
-            AI can make mistakes. Verify important information.
+          <p className="mt-2 text-center text-[11px] text-muted-foreground/60">
+            Answers are limited to{" "}
+            <span className="text-primary/80">
+              {isWorkspace ? "your uploaded documents" : "the uploaded document"}
+            </span>
+            . Verify important information.
           </p>
         </div>
       </div>

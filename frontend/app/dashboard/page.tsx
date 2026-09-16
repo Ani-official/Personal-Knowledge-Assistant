@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useState, useEffect } from "react"
 import { DashboardNavbar } from "@/components/dashboard/navbar"
@@ -8,6 +8,7 @@ import type { ConversationSummary, DocumentItem } from "@/components/dashboard/t
 import { useAuth } from "@/lib/useAuth"
 import AuthDialog from "@/components/ui/auth-dialog"
 import { Bot, Plus } from "lucide-react"
+import { cn } from "@/lib/utils"
 import UploadFAB from "@/components/ui/upload-fab"
 import { Button } from "@/components/ui/button"
 import OnboardingTour from "@/components/dashboard/onboarding-tour"
@@ -21,7 +22,8 @@ export default function Dashboard() {
   const [conversationsLoading, setConversationsLoading] = useState(true)
   const [tourKey, setTourKey] = useState(0)
   const [apiKeyOpen, setApiKeyOpen] = useState(false)
-  const { status } = useAuth()
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const { status, email } = useAuth()
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem("token")
@@ -175,6 +177,15 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
+    setSidebarCollapsed(localStorage.getItem("sidebarCollapsed") === "1")
+  }, [])
+
+  const applySidebarCollapsed = (next: boolean) => {
+    setSidebarCollapsed(next)
+    localStorage.setItem("sidebarCollapsed", next ? "1" : "0")
+  }
+
+  useEffect(() => {
     if (status !== "authenticated") return
 
     const initialize = async () => {
@@ -217,55 +228,67 @@ export default function Dashboard() {
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId) ?? null
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="flex h-screen bg-background">
       <OnboardingTour
         key={tourKey}
         triggerKey={tourKey}
-        onOpenApiKey={() => setApiKeyOpen(true)}
-      />
-      <DashboardNavbar
-        documents={documents}
-        conversations={conversations}
-        loading={documentsLoading}
-        conversationsLoading={conversationsLoading}
-        onSelectDocument={handleSelectDocument}
-        onSelectWorkspace={handleSelectWorkspace}
-        onSelectConversation={handleSelectConversation}
-        onStartNewChat={() => setScopeState(docId, null)}
-        onUpload={handleUpload}
-        onDeleteDocument={handleDeleteDocument}
-        onRenameConversation={handleRenameConversation}
-        onDeleteConversation={handleDeleteConversation}
-        activeDocId={docId}
-        activeConversationId={activeConversationId}
-        onTakeTour={() => {
-          setApiKeyOpen(false)
-          setTourKey((key) => key + 1)
+        onOpenApiKey={() => {
+          applySidebarCollapsed(false)
+          setApiKeyOpen(true)
         }}
       />
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="hidden flex-shrink-0 border-r border-border/60 lg:flex lg:w-72 xl:w-80">
-          <DashboardSidebar
-            documents={documents}
-            conversations={conversations}
-            loading={documentsLoading}
-            conversationsLoading={conversationsLoading}
-            onSelectDocument={handleSelectDocument}
-            onSelectWorkspace={handleSelectWorkspace}
-            onSelectConversation={handleSelectConversation}
-            onStartNewChat={() => setScopeState(docId, null)}
-            onUpload={handleUpload}
-            onDeleteDocument={handleDeleteDocument}
-            onRenameConversation={handleRenameConversation}
-            onDeleteConversation={handleDeleteConversation}
-            activeDocId={docId}
-            activeConversationId={activeConversationId}
-            forceApiKeyOpen={apiKeyOpen}
-          />
-        </aside>
+      <aside
+        className={cn(
+          "hidden shrink-0 border-r border-border/60 transition-[width] duration-200 ease-out lg:flex",
+          sidebarCollapsed ? "w-[60px]" : "w-72 xl:w-80"
+        )}
+      >
+        <DashboardSidebar
+          documents={documents}
+          conversations={conversations}
+          loading={documentsLoading}
+          conversationsLoading={conversationsLoading}
+          onSelectDocument={handleSelectDocument}
+          onSelectWorkspace={handleSelectWorkspace}
+          onSelectConversation={handleSelectConversation}
+          onStartNewChat={() => setScopeState(docId, null)}
+          onUpload={handleUpload}
+          onDeleteDocument={handleDeleteDocument}
+          onRenameConversation={handleRenameConversation}
+          onDeleteConversation={handleDeleteConversation}
+          activeDocId={docId}
+          activeConversationId={activeConversationId}
+          forceApiKeyOpen={apiKeyOpen}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => applySidebarCollapsed(!sidebarCollapsed)}
+        />
+      </aside>
 
-        <main className="relative flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <DashboardNavbar
+          documents={documents}
+          conversations={conversations}
+          loading={documentsLoading}
+          conversationsLoading={conversationsLoading}
+          onSelectDocument={handleSelectDocument}
+          onSelectWorkspace={handleSelectWorkspace}
+          onSelectConversation={handleSelectConversation}
+          onStartNewChat={() => setScopeState(docId, null)}
+          onUpload={handleUpload}
+          onDeleteDocument={handleDeleteDocument}
+          onRenameConversation={handleRenameConversation}
+          onDeleteConversation={handleDeleteConversation}
+          activeDocId={docId}
+          activeConversationId={activeConversationId}
+          userEmail={email}
+          onTakeTour={() => {
+            setApiKeyOpen(false)
+            setTourKey((key) => key + 1)
+          }}
+        />
+
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           {!docId && !activeConversationId && documents.length === 0 && !documentsLoading ? (
             <div className="flex flex-1 flex-col items-center justify-center p-6 text-center">
               <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
@@ -287,14 +310,15 @@ export default function Dashboard() {
               <p className="mt-4 text-xs text-muted-foreground/60">PDF, TXT, MD, HTML · Max 10 MB</p>
             </div>
           ) : (
-            <div className="relative flex flex-1 flex-col overflow-hidden">
+            <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
               <ChatPanel
                 docId={docId}
+                documentName={documents.find((doc) => doc.doc_id === docId)?.filename ?? null}
+                onUpload={handleUpload}
                 activeConversationId={activeConversationId}
                 activeConversation={activeConversation}
                 onConversationActivated={handleConversationActivated}
                 onConversationChanged={fetchConversations}
-                onStartNewChat={() => setScopeState(docId, null)}
               />
             </div>
           )}
@@ -303,4 +327,3 @@ export default function Dashboard() {
     </div>
   )
 }
-

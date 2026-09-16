@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
@@ -7,6 +7,7 @@ import { Menu } from "lucide-react"
 import DashboardSidebar from "@/components/dashboard/sidebar"
 import type { ConversationSummary, DocumentItem } from "@/components/dashboard/types"
 import { useState } from "react"
+import { BRAND_NAME } from "@/components/dashboard/brand-mark"
 
 export default function MobileSidebarDrawer({
   documents,
@@ -49,11 +50,9 @@ export default function MobileSidebarDrawer({
           <span className="sr-only">Open menu</span>
         </Button>
       </SheetTrigger>
-      <SheetContent side="left" className="w-72 p-0 sm:w-80">
-        <div className="flex h-14 items-center border-b border-border/60 px-4">
-          <DialogTitle className="text-base font-bold">EvidentiaAI</DialogTitle>
-        </div>
-        <div className="h-[calc(100%-3.5rem)]">
+      <SheetContent side="left" className="w-80 gap-0 p-0">
+        <DialogTitle className="sr-only">{BRAND_NAME} navigation</DialogTitle>
+        <div className="h-full">
           <DashboardSidebar
             documents={documents}
             conversations={conversations}

@@ -13,7 +13,27 @@ export function useAuth() {
     // If a token exists in localStorage (email/password OR google via callback page)
     if (localToken && (authType === "email" || authType === "google")) {
       setStatus("authenticated")
-      return
+
+      // Best-effort: the profile menu shows the signed-in address, but a failed
+      // lookup must not knock the user out of an otherwise valid session.
+      let cancelled = false
+      void (async () => {
+        try {
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/me`, {
+            headers: { Authorization: `Bearer ${localToken}` },
+            credentials: "include",
+          })
+          if (!res.ok || cancelled) return
+          const data = await res.json()
+          setEmail(data?.email ?? null)
+        } catch {
+          // ignore — the menu falls back to a generic label
+        }
+      })()
+
+      return () => {
+        cancelled = true
+      }
     }
 
     // No token — user is not logged in
