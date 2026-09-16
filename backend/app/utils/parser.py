@@ -19,12 +19,15 @@ def parse_pdf_pages(file_path: str) -> list[str]:
     try:
         pages: list[str] = []
         for layout in extract_pages(file_path):
+            # Separate text blocks by a blank line, as pdfminer's own
+            # extract_text does — without it every block runs together and the
+            # reader pane becomes a wall of text.
             parts = [
-                element.get_text()
+                element.get_text().rstrip("\n")
                 for element in layout
                 if isinstance(element, LTTextContainer)
             ]
-            pages.append("".join(parts))
+            pages.append("\n\n".join(part for part in parts if part.strip()))
 
         if not any(page.strip() for page in pages):
             logger.warning(
