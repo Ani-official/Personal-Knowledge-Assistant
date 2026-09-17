@@ -45,6 +45,19 @@ function incrementFreeCount(): number {
   return next
 }
 
+/**
+ * Shorten a filename for inline use, keeping the extension so the file is
+ * still recognisable. A long name otherwise wraps the single-row composer
+ * placeholder onto a second, clipped line.
+ */
+function shortenFilename(name: string, limit = 34): string {
+  if (name.length <= limit) return name
+  const dot = name.lastIndexOf(".")
+  const ext = dot > 0 && name.length - dot <= 6 ? name.slice(dot) : ""
+  const stem = ext ? name.slice(0, dot) : name
+  return `${stem.slice(0, Math.max(1, limit - ext.length - 1)).trimEnd()}…${ext}`
+}
+
 function normalizeMarkdownText(text: string): string {
   return text
     .replace(/\r\n/g, "\n")
@@ -509,7 +522,10 @@ export default function ChatPanel({
           </div>
         ) : messages.length === 0 && !aiTyping ? (
           <div className="mx-auto flex h-full max-w-2xl flex-col justify-center px-6 py-10">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
+            <p
+              className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-primary"
+              title={isWorkspace ? undefined : (documentName ?? undefined)}
+            >
               Grounded in {isWorkspace ? "all documents" : (documentName ?? "this document")}
             </p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
@@ -644,7 +660,9 @@ export default function ChatPanel({
                 ? "This conversation is read-only because the document was removed."
                 : isWorkspace
                   ? "Ask a question across all documents..."
-                  : "Ask a question about " + (documentName ?? "this document") + "..."}
+                  : "Ask a question about " +
+                    (documentName ? shortenFilename(documentName) : "this document") +
+                    "..."}
               rows={1}
               disabled={loading || conversationLoading || activeConversation?.document_deleted}
               className="max-h-40 w-full resize-none overflow-y-auto bg-transparent px-4 pt-3.5 pb-2 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/60 disabled:opacity-60 scrollbar-thin"

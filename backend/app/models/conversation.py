@@ -10,7 +10,11 @@ class Conversation(Base):
     user_email = Column(String, ForeignKey("users.email"), nullable=False, index=True)
     title = Column(String, nullable=False)
     scope = Column(String, nullable=False)
-    doc_id = Column(String, ForeignKey("documents.doc_id"), nullable=True)
+    # Deliberately not a foreign key: a conversation outlives the document it
+    # was about. The id is kept after the document is deleted so the chat can
+    # be shown as read-only with "Document removed" rather than vanishing or
+    # masquerading as a workspace chat.
+    doc_id = Column(String, nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
