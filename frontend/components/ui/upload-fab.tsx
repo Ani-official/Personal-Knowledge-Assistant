@@ -168,7 +168,7 @@ export default function UploadFAB({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="p-6 space-y-5">
+        <div className="min-w-0 p-6 space-y-5">
           {/* Drop zone */}
           <div
             onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
@@ -176,7 +176,7 @@ export default function UploadFAB({
             onDrop={handleFileDrop}
             onClick={() => !file && fileInputRef.current?.click()}
             className={cn(
-              "relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200",
+              "relative min-w-0 border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200",
               isDragging
                 ? "border-primary bg-primary/5 scale-[1.01]"
                 : file
@@ -193,13 +193,15 @@ export default function UploadFAB({
             />
 
             {file ? (
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
                   <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
                     <FileText className="w-4 h-4 text-primary" />
                   </div>
                   <div className="min-w-0 text-left">
-                    <p className="text-sm font-medium truncate">{file.name}</p>
+                    <p className="truncate text-sm font-medium" title={file.name}>
+                      {file.name}
+                    </p>
                     <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</p>
                   </div>
                 </div>
