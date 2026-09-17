@@ -7,47 +7,62 @@ import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { Key, ExternalLink, Eye, EyeOff, Check, AlertCircle } from "lucide-react"
 
-export function APIKeyManager({ apiBase }: { apiBase: string }) {
+export type KeyStatus = "none" | "local" | "linked"
+
+/**
+ * Where the user's key currently lives. Shared with the sidebar footer so its
+ * badge and this panel never disagree.
+ */
+export async function readApiKeyStatus(apiBase: string): Promise<KeyStatus> {
+  const token = localStorage.getItem("token")
+  if (token) {
+    try {
+      const res = await fetch(`${apiBase}/api-key/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.has_key) return "linked"
+      }
+    } catch (err) {
+      console.error("Failed to check key status:", err)
+    }
+  }
+  return localStorage.getItem("user-api-key") ? "local" : "none"
+}
+
+export function APIKeyManager({
+  apiBase,
+  onStatusChange,
+}: {
+  apiBase: string
+  onStatusChange?: (status: KeyStatus) => void
+}) {
   const [apiKey, setApiKey] = useState("")
   const [linked, setLinked] = useState(false)
   const [showKey, setShowKey] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [keyStatus, setKeyStatus] = useState<"none" | "local" | "linked">("none")
+  const [keyStatus, setKeyStatusState] = useState<KeyStatus>("none")
+
+  const setKeyStatus = (status: KeyStatus) => {
+    setKeyStatusState(status)
+    onStatusChange?.(status)
+  }
 
   useEffect(() => {
-    checkKeyStatus()
+    void checkKeyStatus()
   }, [])
 
   const checkKeyStatus = async () => {
-    // Check if key is linked to account
-    const authType = localStorage.getItem("auth_type")
-    const token = localStorage.getItem("token")
-    if (token) {
-      try {
-        const res = await fetch(`${apiBase}/api-key/status`, {
-          headers: { Authorization: `Bearer ${token}` },
-          credentials: "include",
-        })
-        if (res.ok) {
-          const data = await res.json()
-          if (data.has_key) {
-            setKeyStatus("linked")
-            setLinked(true)
-            localStorage.setItem("knowai-key-linked", "true")
-            return
-          }
-        }
-      } catch (err) {
-        console.error("Failed to check key status:", err)
-      }
+    const status = await readApiKeyStatus(apiBase)
+    if (status === "linked") {
+      setLinked(true)
+      localStorage.setItem("knowai-key-linked", "true")
+    } else if (status === "local") {
+      setApiKey(localStorage.getItem("user-api-key") ?? "")
     }
-
-    // Check local storage
-    const localKey = localStorage.getItem("user-api-key")
-    if (localKey) {
-      setApiKey(localKey)
-      setKeyStatus("local")
-    }
+    setKeyStatus(status)
   }
 
   const handleLocalSave = () => {
@@ -91,9 +106,9 @@ export function APIKeyManager({ apiBase }: { apiBase: string }) {
 
       if (res.ok) {
         toast.success("API key linked successfully")
-        setKeyStatus("linked")
         setLinked(true)
         localStorage.setItem("knowai-key-linked", "true")
+        setKeyStatus("linked")
       } else {
         const data = await res.json()
         const message = Array.isArray(data.detail)

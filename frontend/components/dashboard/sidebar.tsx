@@ -1,34 +1,56 @@
-﻿"use client"
+"use client"
 
 import { useEffect, useMemo, useState } from "react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Trash2,
-  CheckCircle2,
-  Loader2,
-  XCircle,
   FileText,
   Plus,
   Key,
   ChevronDown,
-  LibraryBig,
   MessagesSquare,
   Pencil,
-  MessageSquarePlus,
+  PanelLeft,
+  Search,
+  Upload,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { APIKeyManager } from "./api-key-manager"
+import { APIKeyManager, readApiKeyStatus, type KeyStatus } from "./api-key-manager"
 import UploadFAB from "@/components/ui/upload-fab"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Switch } from "@/components/ui/switch"
+import { BrandLockup, BrandMark } from "./brand-mark"
 import type { ConversationSummary, DocumentItem } from "./types"
 
 type PendingDelete =
   | { kind: "document"; id: string }
   | { kind: "conversation"; id: string }
   | null
+
+const KEY_BADGE: Record<KeyStatus, { label: string; className: string }> = {
+  linked: { label: "Connected", className: "bg-primary/10 text-primary" },
+  local: { label: "Local", className: "bg-amber-500/10 text-amber-600 dark:text-amber-400" },
+  none: { label: "Not set", className: "bg-muted text-muted-foreground" },
+}
+
+/** Compact age for list rows: "Today", "3d", then a plain date. */
+function shortAge(iso: string) {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
+  if (days <= 0) return "Today"
+  if (days < 30) return `${days}d`
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+}
+
+/** Longer age for the document meta line: "5 days ago". */
+function longAge(iso: string) {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
+  if (days <= 0) return "Today"
+  if (days === 1) return "Yesterday"
+  if (days < 30) return `${days} days ago`
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+}
 
 export default function DashboardSidebar({
   documents,
@@ -46,6 +68,8 @@ export default function DashboardSidebar({
   activeDocId,
   activeConversationId,
   forceApiKeyOpen = false,
+  collapsed = false,
+  onToggleCollapse,
 }: {
   documents: DocumentItem[]
   conversations: ConversationSummary[]
@@ -62,21 +86,49 @@ export default function DashboardSidebar({
   activeDocId: string | null
   activeConversationId: string | null
   forceApiKeyOpen?: boolean
+  /** Render the narrow icon rail instead of the full panel. */
+  collapsed?: boolean
+  /** Omit to hide the collapse control (mobile drawer). */
+  onToggleCollapse?: () => void
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [keyStatus, setKeyStatus] = useState<KeyStatus>("none")
+  const [query, setQuery] = useState("")
+
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
   useEffect(() => {
     if (forceApiKeyOpen) setSettingsOpen(true)
   }, [forceApiKeyOpen])
 
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+  useEffect(() => {
+    let cancelled = false
+    void readApiKeyStatus(apiBase).then((status) => {
+      if (!cancelled) setKeyStatus(status)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [apiBase])
 
-  const doneDocuments = useMemo(
-    () => documents.filter((doc) => doc.status === "done"),
-    [documents]
+  const needle = query.trim().toLowerCase()
+
+  const visibleConversations = useMemo(
+    () =>
+      needle
+        ? conversations.filter((conversation) => conversation.title.toLowerCase().includes(needle))
+        : conversations,
+    [conversations, needle]
   )
+
+  const visibleDocuments = useMemo(
+    () => (needle ? documents.filter((doc) => doc.filename.toLowerCase().includes(needle)) : documents),
+    [documents, needle]
+  )
+
+  const processingCount = documents.filter((doc) => doc.status === "processing").length
 
   const openDeleteConfirm = (kind: "document" | "conversation", id: string) => {
     setPendingDelete({ kind, id })
@@ -96,144 +148,236 @@ export default function DashboardSidebar({
     setPendingDelete(null)
   }
 
-  const formatDate = (iso: string) => {
-    const d = new Date(iso)
-    const now = new Date()
-    const diffDays = Math.floor((now.getTime() - d.getTime()) / 86_400_000)
-    if (diffDays === 0) return "Today"
-    if (diffDays === 1) return "Yesterday"
-    if (diffDays < 7) return `${diffDays} days ago`
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
-  }
-
   const promptRenameConversation = (conversation: ConversationSummary) => {
     const nextTitle = window.prompt("Rename conversation", conversation.title)?.trim()
     if (!nextTitle || nextTitle === conversation.title) return
     onRenameConversation(conversation.id, nextTitle)
   }
 
+  const confirmDialog = (
+    <ConfirmDialog
+      open={confirmOpen}
+      title={pendingDelete?.kind === "conversation" ? "Delete conversation" : "Delete document"}
+      description={
+        pendingDelete?.kind === "conversation"
+          ? "This conversation history will be removed permanently."
+          : "This will permanently delete the document and all its data. This action cannot be undone."
+      }
+      onConfirm={handleConfirmDelete}
+      onCancel={() => {
+        setConfirmOpen(false)
+        setPendingDelete(null)
+      }}
+    />
+  )
+
+  // ---------------------------------------------------------------- rail
+  if (collapsed) {
+    return (
+      <div className="flex h-full w-full flex-col items-center gap-1 bg-sidebar py-3 text-sidebar-foreground">
+        <button
+          onClick={onToggleCollapse}
+          title="Expand sidebar"
+          className="group relative flex size-9 items-center justify-center rounded-xl transition-colors hover:bg-sidebar-accent/60"
+        >
+          <BrandMark className="size-9 rounded-xl text-sm transition-opacity group-hover:opacity-0" />
+          <PanelLeft className="absolute size-4 opacity-0 transition-opacity group-hover:opacity-100" />
+          <span className="sr-only">Expand sidebar</span>
+        </button>
+
+        <div className="my-1.5 h-px w-7 bg-sidebar-border" />
+
+        <div className="flex flex-col items-center gap-1">
+          <UploadFAB
+            onUpload={onUpload}
+            trigger={
+              <Button id="tour-upload" size="icon" className="size-9 rounded-xl shadow-sm shadow-primary/20" title="Upload document">
+                <Upload className="size-4" />
+                <span className="sr-only">Upload document</span>
+              </Button>
+            }
+          />
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onStartNewChat}
+            title="New chat"
+            className="size-9 rounded-xl text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+          >
+            <Plus className="size-4" />
+            <span className="sr-only">New chat</span>
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleCollapse}
+            title="Search chats"
+            className="size-9 rounded-xl text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+          >
+            <Search className="size-4" />
+            <span className="sr-only">Search chats</span>
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleCollapse}
+            title={`${documents.length} document${documents.length === 1 ? "" : "s"}`}
+            className="relative size-9 rounded-xl text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+          >
+            <FileText className="size-4" />
+            {processingCount > 0 && (
+              <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-amber-500" />
+            )}
+            <span className="sr-only">Documents</span>
+          </Button>
+        </div>
+
+        <div className="mt-auto">
+          <Button
+            id="tour-apikey"
+            variant="ghost"
+            size="icon"
+            onClick={onToggleCollapse}
+            title={`API key — ${KEY_BADGE[keyStatus].label}`}
+            className="relative size-9 rounded-xl text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+          >
+            <Key className="size-4" />
+            {keyStatus === "linked" && (
+              <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-primary" />
+            )}
+            <span className="sr-only">API key</span>
+          </Button>
+        </div>
+
+        {confirmDialog}
+      </div>
+    )
+  }
+
+  // ------------------------------------------------------------ full panel
   return (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex-shrink-0 px-3 pt-3 pb-2">
-        <UploadFAB
-          onUpload={onUpload}
-          trigger={
-            <Button className="h-10 w-full gap-2 font-medium shadow-sm shadow-primary/20" variant="default">
-              <Plus className="h-4 w-4" />
-              New Document
-            </Button>
-          }
-        />
+    <div className="flex h-full w-full min-w-0 flex-col bg-sidebar text-sidebar-foreground">
+      <div className="flex h-14 flex-shrink-0 items-center justify-between gap-2 px-3">
+        <BrandLockup />
+        {onToggleCollapse && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleCollapse}
+            title="Collapse sidebar"
+            className="size-8 rounded-lg text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+          >
+            <PanelLeft className="size-4" />
+            <span className="sr-only">Collapse sidebar</span>
+          </Button>
+        )}
       </div>
 
-      <div className="flex-shrink-0 border-b border-sidebar-border/70 px-3 pb-3">
-        <Button
-          variant="outline"
-          onClick={onStartNewChat}
-          className="h-10 w-full justify-start gap-2 rounded-xl border-border/70 bg-background/60"
-        >
-          <MessageSquarePlus className="h-4 w-4" />
-          Start new chat
-        </Button>
+      <div className="flex-shrink-0 space-y-2 px-3 pb-3">
+        <div className="flex items-center gap-2">
+          <UploadFAB
+            onUpload={onUpload}
+            trigger={
+              <Button id="tour-upload" className="h-9 flex-1 text-[13px] font-semibold shadow-sm shadow-primary/20">
+                Upload document
+              </Button>
+            }
+          />
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={onStartNewChat}
+            title="New chat"
+            className="size-9 shrink-0 rounded-lg border-border/70 bg-background/60 text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="size-4" />
+            <span className="sr-only">New chat</span>
+          </Button>
+        </div>
+
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search chats"
+            className="h-9 rounded-lg border-border/70 bg-background/60 pl-8 text-[13px]"
+          />
+        </div>
       </div>
 
       <div className="flex-1 overflow-hidden">
         <ScrollArea className="h-full w-full [&_[data-slot=scroll-area-viewport]]:overflow-x-hidden">
-          <div className="flex min-w-0 flex-col gap-4 px-3 py-3">
+          <div className="flex min-w-0 flex-col gap-5 px-3 pb-4">
             <section>
-              <div className="mb-2 flex items-center justify-between px-1">
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  Recent Chats
+              <div className="mb-1.5 flex items-center justify-between px-1">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60">
+                  Chats
                 </span>
                 {!conversationsLoading && conversations.length > 0 && (
-                  <span className="rounded-full bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground">
-                    {conversations.length}
+                  <span className="text-[11px] tabular-nums text-muted-foreground/60">
+                    {visibleConversations.length}
                   </span>
                 )}
               </div>
 
-              <div className="space-y-1">
+              <div className="space-y-px">
                 {conversationsLoading ? (
                   Array.from({ length: 3 }).map((_, index) => (
-                    <div key={`conversation-skeleton-${index}`} className="rounded-xl px-3 py-2.5">
-                      <Skeleton className="h-4 w-[78%]" />
-                      <Skeleton className="mt-2 h-3 w-20" />
+                    <div key={`conversation-skeleton-${index}`} className="px-2 py-2">
+                      <Skeleton className="h-3.5 w-[70%]" />
                     </div>
                   ))
-                ) : conversations.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-border/60 px-4 py-5 text-sm text-muted-foreground">
-                    Your saved chats will show up here.
-                  </div>
+                ) : visibleConversations.length === 0 ? (
+                  <p className="px-2 py-2 text-[13px] text-muted-foreground/70">
+                    {needle ? "No chats match your search." : "Your saved chats will show up here."}
+                  </p>
                 ) : (
-                  conversations.map((conversation) => {
+                  visibleConversations.map((conversation) => {
                     const isActive = activeConversationId === conversation.id
                     return (
                       <div
                         key={conversation.id}
                         onClick={() => onSelectConversation(conversation.id)}
+                        title={conversation.title}
                         className={cn(
-                          "group grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 rounded-xl pl-2.5 pr-0.5 py-2.5 transition-all duration-150",
+                          "group flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 transition-colors",
                           isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/50"
                         )}
                       >
-                        <div className="mt-0.5">
-                          <MessagesSquare className={cn("h-3.5 w-3.5", isActive ? "text-primary" : "text-muted-foreground/70")} />
-                        </div>
+                        <span className="min-w-0 flex-1 truncate text-[13px] leading-6">
+                          {conversation.title}
+                        </span>
 
-                        <div className="min-w-0 overflow-hidden">
-                          <p className="truncate text-sm font-medium leading-snug" title={conversation.title}>
-                            {conversation.title}
-                          </p>
-                          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground/70">
-                            <span
-                              className={cn(
-                                "rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                                conversation.scope === "workspace"
-                                  ? "border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-900 dark:bg-cyan-950/40 dark:text-cyan-300"
-                                  : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
-                              )}
-                            >
-                              {conversation.scope === "workspace" ? "Workspace" : "Document"}
-                            </span>
-                            <span>{formatDate(conversation.updated_at)}</span>
-                          </div>
-                          {conversation.document_deleted && (
-                            <p className="mt-1 text-xs text-destructive">Document removed</p>
-                          )}
-                        </div>
+                        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/60 group-hover:hidden">
+                          {shortAge(conversation.updated_at)}
+                        </span>
 
-                        <div className="flex items-center gap-0.5 self-center">
-                          <Button
-                            variant="ghost"
-                            size="icon"
+                        <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
+                          <button
                             onClick={(event) => {
                               event.stopPropagation()
                               promptRenameConversation(conversation)
                             }}
-                            className={cn(
-                              "h-7 w-7 rounded-lg text-muted-foreground/70 transition-all hover:bg-accent hover:text-foreground",
-                              "opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
-                              isActive && "md:opacity-100"
-                            )}
+                            title="Rename chat"
+                            className="rounded p-1 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
                           >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
+                            <Pencil className="size-3.5" />
+                          </button>
+                          <button
                             onClick={(event) => {
                               event.stopPropagation()
                               openDeleteConfirm("conversation", conversation.id)
                             }}
-                            className={cn(
-                              "h-7 w-7 rounded-lg text-muted-foreground/70 transition-all hover:bg-destructive/8 hover:text-destructive",
-                              "opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
-                              isActive && "md:opacity-100"
-                            )}
+                            title="Delete chat"
+                            className="rounded p-1 text-muted-foreground/70 transition-colors hover:bg-destructive/10 hover:text-destructive"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </span>
                       </div>
                     )
                   })
@@ -242,118 +386,99 @@ export default function DashboardSidebar({
             </section>
 
             <section>
-              <div className="mb-2 flex items-center justify-between px-1">
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+              <div className="mb-1.5 flex items-center justify-between px-1">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60">
                   Documents
                 </span>
                 {!loading && documents.length > 0 && (
-                  <span className="rounded-full bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground">
-                    {documents.length}
+                  <span className="text-[11px] tabular-nums text-muted-foreground/60">
+                    {visibleDocuments.length}
                   </span>
                 )}
               </div>
 
-              <div id="tour-workspace" className="mb-1 flex items-center justify-between rounded-xl px-2.5 py-2">
-                <div className="flex items-center gap-2">
-                  <LibraryBig className={cn("h-3.5 w-3.5 shrink-0", activeDocId === null ? "text-primary" : "text-muted-foreground/60")} />
-                  <span className={cn("text-sm font-medium", activeDocId === null ? "text-foreground" : "text-muted-foreground")}>
-                    All Documents
-                  </span>
-                </div>
-                <Switch
-                  checked={activeDocId === null}
-                  onCheckedChange={(checked) => {
-                    if (checked) {
-                      onSelectWorkspace()
-                    } else {
-                      const firstDone = doneDocuments[0]
-                      onSelectDocument(firstDone?.doc_id ?? null)
-                    }
-                  }}
-                />
-              </div>
-
-              <div id="tour-doclist" className="space-y-0.5">
+              <div id="tour-doclist" className="space-y-1">
                 {loading ? (
-                  Array.from({ length: 4 }).map((_, index) => (
-                    <div
-                      key={`doc-skeleton-${index}`}
-                      className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 rounded-xl pl-2.5 pr-0.5 py-2.5"
-                    >
-                      <Skeleton className="mt-0.5 h-3.5 w-3.5 rounded-full" />
-                      <div className="min-w-0 overflow-hidden">
-                        <Skeleton className="h-4 w-[78%]" />
-                        <Skeleton className="mt-2 h-3 w-16" />
-                      </div>
-                      <Skeleton className="h-7 w-7 self-center rounded-lg" />
+                  Array.from({ length: 3 }).map((_, index) => (
+                    <div key={`doc-skeleton-${index}`} className="rounded-lg border border-border/60 px-3 py-2.5">
+                      <Skeleton className="h-3.5 w-[70%]" />
+                      <Skeleton className="mt-2 h-3 w-24" />
                     </div>
                   ))
                 ) : documents.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
-                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
-                      <FileText className="h-5 w-5 text-muted-foreground/60" />
-                    </div>
-                    <p className="mb-1 text-sm font-medium text-muted-foreground">No documents yet</p>
-                    <p className="text-xs text-muted-foreground/70">Upload your first document above to get started</p>
-                  </div>
+                  <p className="px-2 py-2 text-[13px] text-muted-foreground/70">
+                    Upload a document to get started.
+                  </p>
+                ) : visibleDocuments.length === 0 ? (
+                  <p className="px-2 py-2 text-[13px] text-muted-foreground/70">
+                    No documents match your search.
+                  </p>
                 ) : (
-                  documents.map((doc) => {
+                  visibleDocuments.map((doc) => {
                     const isActive = activeConversationId === null && activeDocId === doc.doc_id
                     return (
                       <div
                         key={doc.doc_id}
                         onClick={() => doc.status === "done" && onSelectDocument(doc.doc_id)}
                         className={cn(
-                          "group grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 rounded-xl pl-2.5 pr-0.5 py-2.5 transition-all duration-150",
+                          "group flex items-start gap-2.5 rounded-lg border px-3 py-2.5 transition-colors",
                           doc.status === "done" ? "cursor-pointer" : "cursor-default",
-                          isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/50"
+                          isActive
+                            ? "border-primary/40 bg-sidebar-accent"
+                            : "border-border/60 bg-background/40 hover:border-border hover:bg-background/70"
                         )}
                       >
-                        <div className="mt-0.5">
-                          {doc.status === "done" ? (
-                            <CheckCircle2 className={cn("h-3.5 w-3.5", isActive ? "text-primary" : "text-green-500")} />
-                          ) : doc.status === "failed" ? (
-                            <XCircle className="h-3.5 w-3.5 text-destructive" />
-                          ) : (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />
+                        <span
+                          className={cn(
+                            "mt-1.5 size-1.5 shrink-0 rounded-full",
+                            doc.status === "done" && "bg-primary",
+                            doc.status === "failed" && "bg-destructive",
+                            doc.status === "processing" && "animate-pulse bg-amber-500"
                           )}
-                        </div>
+                        />
 
-                        <div className="min-w-0 overflow-hidden">
-                          <p className="truncate text-sm font-medium leading-snug" title={doc.filename}>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] font-medium leading-5" title={doc.filename}>
                             {doc.filename}
                           </p>
-                          <p className="mt-0.5 text-xs text-muted-foreground/70">
+                          <p className="mt-0.5 text-[11px] text-muted-foreground/70">
                             {doc.status === "processing"
-                              ? "Processing..."
+                              ? "Indexing…"
                               : doc.status === "failed"
-                                ? "Failed"
-                                : formatDate(doc.upload_time)}
+                                ? "Failed to index"
+                                : `Indexed · ${longAge(doc.upload_time)}`}
                           </p>
                         </div>
 
-                        <div className="flex w-5 self-center items-center justify-end">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              openDeleteConfirm("document", doc.doc_id)
-                            }}
-                            className={cn(
-                              "h-7 w-7 rounded-lg text-muted-foreground/70 transition-all hover:bg-destructive/8 hover:text-destructive",
-                              "opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
-                              isActive && "md:opacity-100"
-                            )}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            openDeleteConfirm("document", doc.doc_id)
+                          }}
+                          title="Delete document"
+                          className="rounded p-1 text-muted-foreground/60 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
                       </div>
                     )
                   })
                 )}
               </div>
+
+              <button
+                id="tour-workspace"
+                onClick={onSelectWorkspace}
+                className={cn(
+                  "mt-2 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] transition-colors",
+                  activeDocId === null
+                    ? "font-medium text-primary"
+                    : "text-primary/80 hover:bg-sidebar-accent/50 hover:text-primary"
+                )}
+              >
+                <MessagesSquare className="size-3.5 shrink-0" />
+                Search across all documents
+              </button>
             </section>
           </div>
         </ScrollArea>
@@ -362,36 +487,32 @@ export default function DashboardSidebar({
       <div id="tour-apikey" className="flex-shrink-0 border-t border-sidebar-border">
         <button
           onClick={() => setSettingsOpen(!settingsOpen)}
-          className="flex w-full items-center justify-between px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 transition-colors hover:text-muted-foreground"
+          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
         >
           <span className="flex items-center gap-2">
-            <Key className="h-3.5 w-3.5" />
-            API Key
+            <Key className="size-3.5" />
+            API key
           </span>
-          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", settingsOpen && "rotate-180")} />
+          <span className="flex items-center gap-1.5">
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                KEY_BADGE[keyStatus].className
+              )}
+            >
+              {KEY_BADGE[keyStatus].label}
+            </span>
+            <ChevronDown className={cn("size-3.5 transition-transform", settingsOpen && "rotate-180")} />
+          </span>
         </button>
         {settingsOpen && (
-          <div className="px-3 pb-3">
-            <APIKeyManager apiBase={apiBase} />
+          <div className="max-h-[50vh] overflow-y-auto px-3 pb-3">
+            <APIKeyManager apiBase={apiBase} onStatusChange={setKeyStatus} />
           </div>
         )}
       </div>
 
-      <ConfirmDialog
-        open={confirmOpen}
-        title={pendingDelete?.kind === "conversation" ? "Delete conversation" : "Delete document"}
-        description={
-          pendingDelete?.kind === "conversation"
-            ? "This conversation history will be removed permanently."
-            : "This will permanently delete the document and all its data. This action cannot be undone."
-        }
-        onConfirm={handleConfirmDelete}
-        onCancel={() => {
-          setConfirmOpen(false)
-          setPendingDelete(null)
-        }}
-      />
+      {confirmDialog}
     </div>
   )
 }
-

@@ -4,7 +4,7 @@ import tempfile
 import aiofiles
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from app.utils.parser import parse_pdf, parse_markdown, parse_text, parse_html
+from app.utils.parser import parse_pdf_pages, paginate_text, parse_markdown, parse_text, parse_html
 from app.services.rag import embed_and_store
 from app.utils.compression import compress_text
 from app.models.document import Document
@@ -57,8 +57,11 @@ async def upload_file(
                 detail="File too large. Maximum size is 10MB.",
             )
 
+        # Everything is stored as a list of reader units: real pages for PDFs,
+        # fixed-size sections for formats that have no pagination of their own.
         if filename.endswith(".pdf"):
-            text = parse_pdf(temp_file_path)
+            pages = parse_pdf_pages(temp_file_path)
+            page_label = "page"
         elif filename.endswith((".md", ".txt", ".html", ".htm")):
             async with aiofiles.open(temp_file_path, "rb") as f:
                 raw = await f.read()
@@ -68,11 +71,19 @@ async def upload_file(
                 text = parse_text(raw)
             else:
                 text = parse_markdown(raw)
+            pages = paginate_text(text)
+            page_label = "section"
         else:
             raise HTTPException(status_code=415, detail="Unsupported file type. Allowed: PDF, MD, TXT, HTML")
 
+        if not any(page.strip() for page in pages):
+            raise HTTPException(
+                status_code=422,
+                detail="No readable text found in this file. Scanned or image-only PDFs are not supported.",
+            )
+
         doc_id = str(uuid.uuid4())
-        compressed_text = compress_text(text)
+        compressed_pages = [compress_text(page) for page in pages]
 
         # Get user subscription from DB
         user_result = await db.execute(select(User).where(User.email == user))
@@ -105,7 +116,7 @@ async def upload_file(
         db.add(document)
         await db.commit()
 
-        background_tasks.add_task(embed_and_store, compressed_text, doc_id)
+        background_tasks.add_task(embed_and_store, compressed_pages, doc_id, page_label)
 
         elapsed = round(time.time() - start_time, 2)
         return {

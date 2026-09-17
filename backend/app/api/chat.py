@@ -34,6 +34,9 @@ router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 
 MAX_QUESTION_LENGTH = 2000
+# Passages returned to the client as citable evidence. Every retrieved chunk
+# still reaches the model; this only caps what the reader can open.
+MAX_EVIDENCE_SOURCES = 6
 
 
 async def persist_streaming_response(
@@ -170,16 +173,16 @@ async def chat_with_doc(
 
         chunks = [m["text"] for m in matches]
 
-        seen: dict[str, dict] = {}
-        for match in matches:
-            match_doc_id = match["doc_id"]
-            if match_doc_id not in seen or match["score"] > seen[match_doc_id]["score"]:
-                seen[match_doc_id] = {
-                    "doc_id": match_doc_id,
-                    "filename": doc_id_to_filename.get(match_doc_id, match_doc_id),
-                    "score": round(match["score"], 3),
-                }
-        sources = list(seen.values())
+        sources = [
+            {
+                "doc_id": match["doc_id"],
+                "filename": doc_id_to_filename.get(match["doc_id"], match["doc_id"]),
+                "score": round(match["score"], 3),
+                "page": match.get("page"),
+                "text": match["text"],
+            }
+            for match in matches[:MAX_EVIDENCE_SOURCES]
+        ]
 
         return StreamingResponse(
             persist_streaming_response(
@@ -210,9 +213,25 @@ async def chat_with_doc(
 
     chunks = [match["text"] for match in matches]
 
+    doc_result = await db.execute(
+        select(Document).where(Document.doc_id == doc_id, Document.user_email == user)
+    )
+    document = doc_result.scalar_one_or_none()
+
+    sources = [
+        {
+            "doc_id": doc_id,
+            "filename": document.filename if document else doc_id,
+            "score": round(match["score"], 3),
+            "page": match.get("page"),
+            "text": match["text"],
+        }
+        for match in matches[:MAX_EVIDENCE_SOURCES]
+    ]
+
     return StreamingResponse(
         persist_streaming_response(
-            query_llm(question, chunks, final_key, model),
+            query_llm(question, chunks, final_key, model, sources=sources),
             conversation.id,
         ),
         media_type="text/event-stream",

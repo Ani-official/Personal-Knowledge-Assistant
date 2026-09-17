@@ -1,14 +1,30 @@
-﻿export type DocumentItem = {
+export type DocumentItem = {
   doc_id: string
   filename: string
   status: string
   upload_time: string
+  /** Null for documents indexed before page text was stored. */
+  page_count: number | null
+  /** "page" for PDFs, "section" for formats without inherent pagination. */
+  page_label: string
 }
 
 export type Source = {
   doc_id: string
   filename: string
   score: number
+  /** The retrieved passage itself — what the answer was grounded in. */
+  text?: string
+  page?: number | null
+}
+
+export type DocumentPage = {
+  doc_id: string
+  filename: string
+  page_number: number
+  page_count: number
+  page_label: string
+  text: string
 }
 
 export type ChatMessage = {
