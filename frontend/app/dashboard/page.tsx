@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils"
 import UploadFAB from "@/components/ui/upload-fab"
 import { Button } from "@/components/ui/button"
 import OnboardingTour from "@/components/dashboard/onboarding-tour"
+import { toast } from "sonner"
 
 export default function Dashboard() {
   const [docId, setDocId] = useState<string | null>(null)
@@ -30,6 +31,19 @@ export default function Dashboard() {
   const getAuthHeaders = () => {
     const token = localStorage.getItem("token")
     return token ? { Authorization: `Bearer ${token}` } : undefined
+  }
+
+  /** The server's own reason for a failure, when it gave one. */
+  const failureReason = async (res: Response, fallback: string) => {
+    try {
+      const body = await res.json()
+      const detail = body?.detail
+      if (typeof detail === "string") return detail
+      if (Array.isArray(detail)) return detail.map((item) => item?.msg ?? "").join(", ") || fallback
+    } catch {
+      // no JSON body; fall through
+    }
+    return fallback
   }
 
   const fetchDocuments = async () => {
@@ -130,15 +144,15 @@ export default function Dashboard() {
         headers: getAuthHeaders(),
         credentials: localStorage.getItem("token") ? "omit" : "include",
       })
-      if (!res.ok) throw new Error("Delete failed")
+      if (!res.ok) throw new Error(await failureReason(res, "Failed to delete document"))
 
       setDocuments((prev) => prev.filter((doc) => doc.doc_id !== deletedId))
       if (activeConversationId === null && docId === deletedId) {
         setScopeState(null, null)
       }
       await fetchConversations()
-    } catch {
-      alert("Failed to delete document")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete document")
     }
   }
 
@@ -153,12 +167,12 @@ export default function Dashboard() {
         credentials: localStorage.getItem("token") ? "omit" : "include",
         body: JSON.stringify({ title }),
       })
-      if (!res.ok) throw new Error("Rename failed")
+      if (!res.ok) throw new Error(await failureReason(res, "Failed to rename conversation"))
 
       const updated = (await res.json()) as ConversationSummary
       setConversations((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
-    } catch {
-      alert("Failed to rename conversation")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to rename conversation")
     }
   }
 
@@ -169,15 +183,15 @@ export default function Dashboard() {
         headers: getAuthHeaders(),
         credentials: localStorage.getItem("token") ? "omit" : "include",
       })
-      if (!res.ok) throw new Error("Delete failed")
+      if (!res.ok) throw new Error(await failureReason(res, "Failed to delete conversation"))
 
       setConversations((prev) => prev.filter((item) => item.id !== conversationId))
       if (activeConversationId === conversationId) {
         localStorage.removeItem("activeConversationId")
         setActiveConversationId(null)
       }
-    } catch {
-      alert("Failed to delete conversation")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete conversation")
     }
   }
 
