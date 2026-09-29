@@ -39,8 +39,13 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "Lax"
 
-    # Tokens
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    # Sessions (sliding window). A token is valid for ACCESS_TOKEN_EXPIRE_MINUTES
+    # after it was issued; every POST /auth/refresh issues a fresh one, so an
+    # active user stays signed in while an idle one is signed out after this
+    # window. SESSION_MAX_AGE_DAYS caps the whole session from the original
+    # sign-in, after which the user must sign in again however active they are.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days of inactivity
+    SESSION_MAX_AGE_DAYS: int = 30
 
     class Config:
         env_file = ".env"

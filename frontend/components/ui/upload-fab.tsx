@@ -12,6 +12,23 @@ import {
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { toast } from "sonner"
+import { apiJson } from "@/lib/api"
+import { reportError, showErrorDialog } from "@/lib/error-dialog"
+
+/** Map the worker's free-text failure reason to something the user can act on. */
+function processingFailure(detail: string) {
+  const lower = detail.toLowerCase()
+  if (lower.includes("no extractable text")) {
+    return { title: "No text found", message: "We couldn't extract text. The file may be a scanned or image-only PDF.", code: "DOC_NO_TEXT" }
+  }
+  if (detail.includes("429") || lower.includes("rate limit") || lower.includes("quota")) {
+    return { title: "Embedding quota exceeded", message: "Check your Jina AI API key or plan limits, then upload again.", code: "DOC_EMBEDDING_QUOTA" }
+  }
+  if (lower.includes("unauthorized") || detail.includes("401")) {
+    return { title: "Embedding service rejected the key", message: "Check the EMBEDDING_API_KEY setting, then upload again.", code: "DOC_EMBEDDING_AUTH" }
+  }
+  return { title: "Processing failed", message: "Your document couldn't be processed. Try uploading it again.", code: "DOC_PROCESSING_FAILED" }
+}
 import { cn } from "@/lib/utils"
 
 export default function UploadFAB({
@@ -33,7 +50,6 @@ export default function UploadFAB({
   const hasToasted = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const apiBase = process.env.NEXT_PUBLIC_API_URL
 
   // Cancel any in-flight poll when the component unmounts
   useEffect(() => () => { if (pollingRef.current) clearTimeout(pollingRef.current) }, [])
@@ -55,18 +71,13 @@ export default function UploadFAB({
   }
 
   const pollStatus = (docId: string) => {
-    const token = localStorage.getItem("token")
     setStatusMsg("Processing embeddings…")
 
     const tick = async () => {
       if (isClearedRef.current) return
 
       try {
-        const res = await fetch(`${apiBase}/status/${docId}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          credentials: token ? "omit" : "include",
-        })
-        const data = await res.json()
+        const data = await apiJson<{ status: string; error_detail?: string }>(`/status/${docId}`)
 
         if (data.status === "done") {
           if (hasToasted.current) return
@@ -83,21 +94,16 @@ export default function UploadFAB({
         } else if (data.status === "failed") {
           setStatusMsg("Processing failed.")
           const detail: string = data.error_detail ?? ""
-          if (detail.toLowerCase().includes("no extractable text")) {
-            toast.error("Could not extract text. The file may be a scanned or image-only PDF.")
-          } else if (detail.includes("429") || detail.toLowerCase().includes("rate limit") || detail.toLowerCase().includes("quota")) {
-            toast.error("Embedding quota exceeded. Check your Jina AI API key or plan limits.")
-          } else if (detail.toLowerCase().includes("unauthorized") || detail.includes("401")) {
-            toast.error("Invalid embedding API key. Check your EMBEDDING_API_KEY setting.")
-          } else {
-            toast.error("Document processing failed. Try uploading again.")
-          }
+          showErrorDialog(processingFailure(detail))
         } else {
           // Still processing — schedule next poll only after this one finishes
           pollingRef.current = setTimeout(tick, 2000)
         }
-      } catch {
-        toast.error("Failed to check document status.")
+      } catch (err) {
+        reportError(err, {
+          title: "Couldn't check document status",
+          message: "We lost track of your document while it was processing. Refresh to see its status.",
+        })
         setStatusMsg("Status check failed.")
       }
     }
@@ -113,30 +119,15 @@ export default function UploadFAB({
 
     const formData = new FormData()
     formData.append("file", selectedFile)
-    const token = localStorage.getItem("token")
-
     try {
-      const res = await fetch(`${apiBase}/upload/`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        body: formData,
-        credentials: token ? "omit" : "include",
-      })
-
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.detail || "Upload failed")
-      }
-
-      const result = await res.json()
+      const result = await apiJson<{ doc_id?: string }>("/upload/", { method: "POST", body: formData })
       if (result.doc_id) {
         setProgress(55)
         localStorage.setItem("activeDocId", result.doc_id)
         pollStatus(result.doc_id)
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Upload failed. Please try again."
-      toast.error(msg)
+      reportError(err, { title: "Upload failed", message: "Your file couldn't be uploaded. Please try again." })
       setUploading(false)
       setStatusMsg(null)
     }

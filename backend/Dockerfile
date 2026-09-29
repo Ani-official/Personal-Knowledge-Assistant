@@ -53,4 +53,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\", \"8000\")}/health')" || exit 1
 
 # Start the API without auto-running Alembic; production DB migration state is being reconciled separately.
-CMD ["sh", "-c", "gunicorn main:app -k uvicorn.workers.UvicornWorker -w 1 --timeout 120 --graceful-timeout 30 --keep-alive 30 -b 0.0.0.0:${PORT:-8000}"]
+CMD ["sh", "-c", "gunicorn main:app -k uvicorn.workers.UvicornWorker -w 1 --timeout 120 --graceful-timeout 30 --keep-alive 30 -b 0.0.0.0:${PORT:-8000} --forwarded-allow-ips='*'"]

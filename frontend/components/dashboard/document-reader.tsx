@@ -1,5 +1,7 @@
 "use client"
 
+import { apiJson } from "@/lib/api"
+import { toApiError } from "@/lib/api-errors"
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react"
 
@@ -144,24 +146,12 @@ export default function DocumentReader({
     setLoading(true)
     setError(null)
     try {
-      const token = localStorage.getItem("token")
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/documents/${target.docId}/pages/${target.page}`,
-        {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          credentials: token ? "omit" : "include",
-        }
-      )
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        setPage(null)
-        setError(body?.detail ?? "Could not load this page.")
-        return
-      }
-      setPage(await res.json())
-    } catch {
+      setPage(await apiJson(`/documents/${target.docId}/pages/${target.page}`))
+    } catch (err) {
       setPage(null)
-      setError("Could not load this page.")
+      const apiError = toApiError(err)
+      // A session-ending error has already redirected; show nothing extra.
+      if (!apiError.isSessionEnded) setError(apiError.message || "Could not load this page.")
     } finally {
       setLoading(false)
     }

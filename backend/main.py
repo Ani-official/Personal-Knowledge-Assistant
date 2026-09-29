@@ -8,14 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
 
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
 
 from qdrant_client.models import VectorParams, Distance
 
 from app.api import upload, chat, status, auth, documents, user_api_key, feedback, conversations
 from app.core.config import settings
+from app.core.errors import install_error_handling
+from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.services.vector_store import qdrant_client, COLLECTION_NAME, VECTOR_SIZE
 
@@ -57,11 +56,9 @@ async def lifespan(app: FastAPI):
     yield
 
 
-limiter = Limiter(key_func=get_remote_address)
-
 app = FastAPI(lifespan=lifespan)
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+install_error_handling(app)
 
 app.add_middleware(
     SessionMiddleware,
@@ -74,6 +71,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID", "X-Conversation-Id", "X-Fallback-Key", "Retry-After"],
 )
 
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])

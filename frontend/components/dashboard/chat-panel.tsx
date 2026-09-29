@@ -21,7 +21,8 @@ import remarkGfm from "remark-gfm"
 import { ModelSelector } from "./model-selector"
 import UploadFAB from "@/components/ui/upload-fab"
 import { cn } from "@/lib/utils"
-import { toast } from "sonner"
+import { apiFetch, apiJson } from "@/lib/api"
+import { reportError, showErrorDialog } from "@/lib/error-dialog"
 import type { ChatMessage, ConversationDetail, ConversationSummary, Source } from "./types"
 
 const FREE_CHAT_LIMIT = 5
@@ -294,7 +295,6 @@ export default function ChatPanel({
   const scrollRef = useRef<HTMLDivElement>(null)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const apiBase = process.env.NEXT_PUBLIC_API_URL
 
   useEffect(() => {
     if (!hasOwnApiKey() && getFreeCount() >= FREE_CHAT_LIMIT) {
@@ -327,22 +327,17 @@ export default function ChatPanel({
 
       setConversationLoading(true)
       try {
-        const token = localStorage.getItem("token")
-        const res = await fetch(`${apiBase}/conversations/${activeConversationId}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          credentials: token ? "omit" : "include",
-        })
-
-        if (!res.ok) throw new Error("Failed to load conversation")
-
-        const detail = (await res.json()) as ConversationDetail
+        const detail = await apiJson<ConversationDetail>(`/conversations/${activeConversationId}`)
         if (!cancelled) {
           setMessages(toChatMessages(detail))
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
           setMessages([])
-          toast.error("Could not load conversation history.")
+          reportError(err, {
+            title: "Couldn't load conversation",
+            message: "This conversation's history couldn't be loaded. Please try again.",
+          })
         }
       } finally {
         if (!cancelled) {
@@ -356,7 +351,7 @@ export default function ChatPanel({
     return () => {
       cancelled = true
     }
-  }, [activeConversationId, apiBase])
+  }, [activeConversationId])
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -390,14 +385,9 @@ export default function ChatPanel({
     if (textareaRef.current) textareaRef.current.style.height = "auto"
 
     try {
-      const token = localStorage.getItem("token")
-      const res = await fetch(`${apiBase}/chat/`, {
+      const res = await apiFetch("/chat/", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        credentials: token ? "omit" : "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...(isWorkspace ? { scope: "workspace" } : { scope: "document", doc_id: docId }),
           ...(activeConversationId ? { conversation_id: activeConversationId } : {}),
@@ -463,13 +453,21 @@ export default function ChatPanel({
           try {
             const parsed = JSON.parse(data)
             if (parsed?.error) {
-              toast.error("Model error. Try a different model or shorten the document.")
+              showErrorDialog({
+                title: "The model couldn't answer",
+                message: "Try a different model, or ask about a shorter document.",
+                code: "CHAT_MODEL_ERROR",
+              })
               setAiTyping("")
               await onConversationChanged()
               return
             }
             if (parsed?.rate_limit) {
-              toast.error("Rate limit reached. Please try again later or add your own OpenRouter API key.")
+              showErrorDialog({
+                title: "Model rate limit reached",
+                message: "Please try again later, or add your own OpenRouter API key.",
+                code: "CHAT_RATE_LIMITED",
+              })
               setAiTyping("")
               await onConversationChanged()
               return
@@ -490,12 +488,9 @@ export default function ChatPanel({
           }
         }
       }
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        { type: "ai", text: "Something went wrong. Please try again." },
-      ])
+    } catch (err) {
       setAiTyping("")
+      reportError(err, { title: "Message not sent", message: "Something went wrong sending your message. Please try again." })
     } finally {
       setLoading(false)
     }
