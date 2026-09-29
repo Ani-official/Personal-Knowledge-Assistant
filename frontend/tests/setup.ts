@@ -5,6 +5,10 @@ import { cleanup } from "@testing-library/react"
 import { __resetSessionStateForTests } from "@/lib/session"
 import { dismissErrorDialog } from "@/lib/error-dialog"
 
+// jsdom has no layout, so element scrolling isn't implemented.
+Element.prototype.scrollTo ??= function () {}
+Element.prototype.scrollIntoView ??= function () {}
+
 beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()

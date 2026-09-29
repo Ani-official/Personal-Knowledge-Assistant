@@ -11,7 +11,12 @@ import type { DocumentPage } from "./types"
 
 export type ReaderTarget = {
   docId: string
-  page: number
+  filename: string
+  /**
+   * The page to open. `null` for passages from documents indexed before page
+   * numbers were stored: the reader then shows the passage itself.
+   */
+  page: number | null
   /** The retrieved passage, highlighted in the page when it can be located. */
   highlight?: string
 }
@@ -143,8 +148,13 @@ export default function DocumentReader({
   const markRef = useRef<HTMLElement>(null)
 
   const fetchPage = useCallback(async () => {
-    setLoading(true)
     setError(null)
+    if (target.page === null) {
+      setPage(null)
+      setLoading(false)
+      return
+    }
+    setLoading(true)
     try {
       setPage(await apiJson(`/documents/${target.docId}/pages/${target.page}`))
     } catch (err) {
@@ -177,14 +187,16 @@ export default function DocumentReader({
   }, [target.page])
 
   const label = page?.page_label ?? "page"
-  const atFirst = target.page <= 1
-  const atLast = page ? target.page >= page.page_count : true
+  const passageOnly = target.page === null
+  const atFirst = target.page === null || target.page <= 1
+  const atLast = page && target.page !== null ? target.page >= page.page_count : true
 
   return (
     <div className="flex h-full min-w-0 flex-col border-l border-border/60 bg-card/30">
       <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border/60 px-4">
         <div className="flex min-w-0 items-baseline gap-2">
-          <span className="shrink-0 text-sm font-semibold">Extracted text</span>
+          <span className="shrink-0 text-sm font-semibold">{passageOnly ? "Evidence" : "Extracted text"}</span>
+          {passageOnly && <span className="truncate text-xs text-muted-foreground">{target.filename}</span>}
           {page && (
             <span className="truncate text-xs text-muted-foreground">
               {label} {page.page_number} of {page.page_count}
@@ -193,28 +205,32 @@ export default function DocumentReader({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <Button
-            variant="outline"
-            size="icon"
-            disabled={atFirst || loading}
-            onClick={() => onNavigate(target.page - 1)}
-            title={`Previous ${label}`}
-            className="size-7 rounded-md border-border/70"
-          >
-            <ChevronLeft className="size-3.5" />
-            <span className="sr-only">Previous {label}</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            disabled={atLast || loading}
-            onClick={() => onNavigate(target.page + 1)}
-            title={`Next ${label}`}
-            className="size-7 rounded-md border-border/70"
-          >
-            <ChevronRight className="size-3.5" />
-            <span className="sr-only">Next {label}</span>
-          </Button>
+          {!passageOnly && (
+            <>
+              <Button
+                variant="outline"
+                size="icon"
+                disabled={atFirst || loading}
+                onClick={() => target.page !== null && onNavigate(target.page - 1)}
+                title={`Previous ${label}`}
+                className="size-7 rounded-md border-border/70"
+              >
+                <ChevronLeft className="size-3.5" />
+                <span className="sr-only">Previous {label}</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                disabled={atLast || loading}
+                onClick={() => target.page !== null && onNavigate(target.page + 1)}
+                title={`Next ${label}`}
+                className="size-7 rounded-md border-border/70"
+              >
+                <ChevronRight className="size-3.5" />
+                <span className="sr-only">Next {label}</span>
+              </Button>
+            </>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -229,7 +245,11 @@ export default function DocumentReader({
       </div>
 
       <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-5 scrollbar-thin">
-        {loading ? (
+        {passageOnly ? (
+          <blockquote className="rounded-xl border-l-2 border-primary bg-primary/5 px-4 py-3 text-[15px] leading-7 whitespace-pre-wrap text-foreground/90">
+            {target.highlight?.trim() || "This passage has no stored text."}
+          </blockquote>
+        ) : loading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
             Loading {label} {target.page}…
@@ -254,7 +274,9 @@ export default function DocumentReader({
       </div>
 
       <p className={cn("shrink-0 border-t border-border/50 px-5 py-3 text-[11px] text-muted-foreground/70")}>
-        Text extracted at indexing time — the original file isn&apos;t stored, so no page image is available.
+        {passageOnly
+          ? "This document was indexed before page numbers were kept, so only the cited passage is shown. Re-upload it to read passages in context."
+          : "Text extracted at indexing time — the original file isn’t stored, so no page image is available."}
       </p>
     </div>
   )
