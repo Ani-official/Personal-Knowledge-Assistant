@@ -91,7 +91,7 @@ FRONTEND_DASHBOARD_URL=http://localhost:3000/dashboard
 - `GET /auth/login/google`: Google OAuth login
 - `GET /auth/google/callback`: Google OAuth callback; redirects to the frontend with `#token=…` or `#error=<CODE>`
 - `GET /auth/me`: Get current user info
-- `POST /auth/logout`: Log out (clears any legacy cookie)
+- `POST /auth/logout`: Log out on every device (revokes all of the account's tokens server-side)
 
 **Sessions.** A token is valid for 7 days (`ACCESS_TOKEN_EXPIRE_MINUTES`). While the app is open, it refreshes the token at most hourly, so an active user stays signed in. A user who doesn't open the app for 7 days must sign in again. Every session also ends 30 days after the original sign-in (`SESSION_MAX_AGE_DAYS`), however active the user is. When a session ends, the user sees `/auth/session-expired`, which then sends them to `/login`.
 
@@ -99,7 +99,7 @@ FRONTEND_DASHBOARD_URL=http://localhost:3000/dashboard
 ```json
 { "error": { "code": "AUTH_TOKEN_EXPIRED", "message": "…", "status": 401, "request_id": "…" }, "detail": "…" }
 ```
-Auth codes include `AUTH_TOKEN_MISSING`, `AUTH_TOKEN_INVALID`, `AUTH_TOKEN_EXPIRED`, `AUTH_USER_NOT_FOUND`, `AUTH_INVALID_CREDENTIALS`, `AUTH_USE_GOOGLE_SIGNIN`, `AUTH_EMAIL_TAKEN`, `AUTH_EMAIL_INVALID`, `AUTH_PASSWORD_TOO_SHORT`, `AUTH_PASSWORD_TOO_LONG` and `AUTH_OAUTH_*`. General codes include `VALIDATION_FAILED`, `RATE_LIMITED`, `NOT_FOUND` and `INTERNAL_ERROR`. The full list is in `backend/app/core/errors.py`. Every response also carries an `X-Request-ID` header.
+Auth codes include `AUTH_TOKEN_MISSING`, `AUTH_TOKEN_INVALID`, `AUTH_TOKEN_EXPIRED`, `AUTH_USER_NOT_FOUND`, `AUTH_SESSION_REVOKED`, `AUTH_INVALID_CREDENTIALS`, `AUTH_USE_GOOGLE_SIGNIN`, `AUTH_EMAIL_TAKEN`, `AUTH_EMAIL_INVALID`, `AUTH_PASSWORD_TOO_SHORT`, `AUTH_PASSWORD_TOO_LONG` and `AUTH_OAUTH_*`. General codes include `VALIDATION_FAILED`, `RATE_LIMITED`, `NOT_FOUND` and `INTERNAL_ERROR`. The full list is in `backend/app/core/errors.py`. Every response also carries an `X-Request-ID` header.
 
 ### Documents
 - `POST /upload`: Upload PDF or Markdown document

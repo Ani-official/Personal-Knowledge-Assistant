@@ -12,6 +12,7 @@ import {
   needsRefresh,
   refreshSession,
   setSession,
+  signOut,
 } from "@/lib/session"
 import { apiError, jsonResponse, makeToken, mockFetch } from "./helpers"
 
@@ -203,5 +204,47 @@ describe("refreshSession", () => {
     const result = await refreshSession()
     expect(!result.ok && result.error.code).toBe("AUTH_TOKEN_MISSING")
     expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
+describe("signOut", () => {
+  it("revokes the session on the server using the token it just cleared", async () => {
+    const token = makeToken()
+    setSession(token, "email")
+    localStorage.setItem("activeDocId", "d1")
+    const fetch = mockFetch(new Response(null, { status: 204 }))
+
+    await signOut()
+
+    expect(getToken()).toBeNull()
+    expect(localStorage.getItem("activeDocId")).toBeNull()
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe("http://api.test/auth/logout")
+    expect(init.method).toBe("POST")
+    expect((init.headers as Record<string, string>).Authorization).toBe(`Bearer ${token}`)
+  })
+
+  it("signs this device out even when the API is unreachable", async () => {
+    setSession(makeToken(), "email")
+    mockFetch(new TypeError("Failed to fetch"))
+    await expect(signOut()).resolves.toBeUndefined()
+    expect(getToken()).toBeNull()
+  })
+
+  it("does not call the API when already signed out", async () => {
+    const fetch = mockFetch(new Response(null, { status: 204 }))
+    await signOut()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("clears the session before the request returns", async () => {
+    setSession(makeToken(), "email")
+    let tokenDuringRequest: string | null = "unset"
+    mockFetch(() => {
+      tokenDuringRequest = getToken()
+      return new Response(null, { status: 204 })
+    })
+    await signOut()
+    expect(tokenDuringRequest).toBeNull()
   })
 })

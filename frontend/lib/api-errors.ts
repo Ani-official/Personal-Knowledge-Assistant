@@ -11,6 +11,7 @@ export const ERROR_CODES = {
   AUTH_TOKEN_INVALID: "AUTH_TOKEN_INVALID",
   AUTH_TOKEN_EXPIRED: "AUTH_TOKEN_EXPIRED",
   AUTH_USER_NOT_FOUND: "AUTH_USER_NOT_FOUND",
+  AUTH_SESSION_REVOKED: "AUTH_SESSION_REVOKED",
   AUTH_INVALID_CREDENTIALS: "AUTH_INVALID_CREDENTIALS",
   AUTH_USE_GOOGLE_SIGNIN: "AUTH_USE_GOOGLE_SIGNIN",
   AUTH_EMAIL_TAKEN: "AUTH_EMAIL_TAKEN",
@@ -41,6 +42,7 @@ export const SESSION_ENDED_CODES: ReadonlySet<string> = new Set([
   ERROR_CODES.AUTH_TOKEN_INVALID,
   ERROR_CODES.AUTH_TOKEN_EXPIRED,
   ERROR_CODES.AUTH_USER_NOT_FOUND,
+  ERROR_CODES.AUTH_SESSION_REVOKED,
 ])
 
 /** Shown on the login screen to explain why the user is signing in again. */
@@ -49,6 +51,7 @@ export const LOGIN_NOTICES: Record<string, string> = {
   AUTH_TOKEN_INVALID: "Your session is no longer valid. Sign in again to continue.",
   AUTH_TOKEN_MISSING: "Sign in to continue.",
   AUTH_USER_NOT_FOUND: "The account you were using no longer exists. Sign in or create a new account.",
+  AUTH_SESSION_REVOKED: "You were signed out. Sign in again to continue.",
 }
 
 type Copy = { title: string; message: string }
@@ -66,6 +69,10 @@ const COPY: Record<string, Copy> = {
   AUTH_USER_NOT_FOUND: {
     title: "Account not found",
     message: "The account you were signed in with no longer exists.",
+  },
+  AUTH_SESSION_REVOKED: {
+    title: "You were signed out",
+    message: "This session was ended, for example by signing out on another device. Sign in again to continue.",
   },
   AUTH_INVALID_CREDENTIALS: {
     title: "Couldn't sign you in",

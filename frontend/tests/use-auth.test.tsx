@@ -84,7 +84,7 @@ describe("useAuth — returning user", () => {
     expect(go.mock.calls[0][0]).toContain("reason=AUTH_TOKEN_INVALID")
   })
 
-  it.each(["AUTH_TOKEN_EXPIRED", "AUTH_TOKEN_INVALID", "AUTH_USER_NOT_FOUND"])(
+  it.each(["AUTH_TOKEN_EXPIRED", "AUTH_TOKEN_INVALID", "AUTH_USER_NOT_FOUND", "AUTH_SESSION_REVOKED"])(
     "shows the session-expired screen when refresh says %s",
     async (code) => {
       const go = spyNavigation()

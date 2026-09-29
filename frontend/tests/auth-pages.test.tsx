@@ -40,6 +40,7 @@ describe("session-expired screen", () => {
   it.each([
     ["AUTH_TOKEN_INVALID", "Please sign in again"],
     ["AUTH_USER_NOT_FOUND", "Account not found"],
+    ["AUTH_SESSION_REVOKED", "You were signed out"],
   ])("has distinct copy for %s", (reason, heading) => {
     at(`/auth/session-expired?reason=${reason}`)
     render(<SessionExpiredPage />)

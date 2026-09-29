@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { Clock, ShieldAlert, UserX } from "lucide-react"
+import { Clock, LogOut, ShieldAlert, UserX } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { ERROR_CODES, SESSION_ENDED_CODES } from "@/lib/api-errors"
@@ -26,6 +26,11 @@ const SCREENS: Record<string, { icon: typeof Clock; title: string; body: string 
     icon: ShieldAlert,
     title: "Please sign in again",
     body: "You've been signed out. Sign in again to continue.",
+  },
+  [ERROR_CODES.AUTH_SESSION_REVOKED]: {
+    icon: LogOut,
+    title: "You were signed out",
+    body: "This session was ended, for example by signing out on another device. Your documents and conversations are safe.",
   },
   [ERROR_CODES.AUTH_USER_NOT_FOUND]: {
     icon: UserX,

@@ -1,6 +1,6 @@
 "use client"
 
-import { apiBase, clearSession } from "@/lib/session"
+import { signOut } from "@/lib/session"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
@@ -49,13 +49,7 @@ export default function UserMenu({
   const isDark = theme === "dark"
 
   const handleLogout = async () => {
-    // Clear locally first so signing out works even when the API is unreachable.
-    clearSession()
-    try {
-      await fetch(`${apiBase()}/auth/logout`, { method: "POST", credentials: "include" })
-    } catch {
-      // Best effort: only clears a legacy cookie.
-    }
+    await signOut()
     router.push("/")
   }
 

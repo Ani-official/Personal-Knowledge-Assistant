@@ -139,6 +139,12 @@ def auth_time_of(payload: dict) -> datetime:
     return _now()
 
 
+def token_version_of(payload: dict) -> int:
+    """Tokens minted before server-side logout existed carry no "ver"; they count as 0."""
+    ver = payload.get("ver", 0)
+    return ver if isinstance(ver, int) else -1
+
+
 def get_token_from_request(request: Request) -> str | None:
     """Read the token from the Authorization header, falling back to the cookie."""
     auth_header = request.headers.get("Authorization", "")
@@ -163,6 +169,12 @@ async def get_current_user_record(request: Request, db: AsyncSession = Depends(g
             401,
             ErrorCode.AUTH_USER_NOT_FOUND,
             "This account no longer exists. Please sign in again.",
+        )
+    if token_version_of(payload) != user.token_version:
+        raise AppError(
+            401,
+            ErrorCode.AUTH_SESSION_REVOKED,
+            "You were signed out. Please sign in again.",
         )
     return user
 
