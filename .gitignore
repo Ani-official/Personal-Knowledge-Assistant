@@ -56,3 +56,7 @@ frontend/pnpm-debug.log*
 .venv
 # Ignore zip archives
 *.zip
+
+#Local Only
+demo/
+graphify-out/
