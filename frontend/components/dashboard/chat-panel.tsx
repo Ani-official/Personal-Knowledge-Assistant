@@ -796,7 +796,7 @@ function Evidence({
                   {source.page ? ` · page ${source.page}` : ""}
                 </span>
                 <span className="shrink-0 text-[11px] text-muted-foreground/70 group-hover:text-primary">
-                  {source.page ? "Open page" : `${Math.round(source.score * 100)}% match`}
+                  {source.page ? "Open page" : "View passage"}
                 </span>
               </span>
               <span className="mt-1 block text-[13px] leading-6 text-muted-foreground">

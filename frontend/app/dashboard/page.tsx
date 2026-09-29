@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button"
 import OnboardingTour from "@/components/dashboard/onboarding-tour"
 import { apiFetch, apiJson } from "@/lib/api"
 import { reportError } from "@/lib/error-dialog"
+import { useMediaQuery } from "@/lib/use-media-query"
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 
 export default function Dashboard() {
   const [docId, setDocId] = useState<string | null>(null)
@@ -27,6 +29,7 @@ export default function Dashboard() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [readerTarget, setReaderTarget] = useState<ReaderTarget | null>(null)
   const { status, email } = useAuth({ required: true })
+  const isWide = useMediaQuery("(min-width: 768px)")
 
   const fetchDocuments = async () => {
     setDocumentsLoading(true)
@@ -155,10 +158,26 @@ export default function Dashboard() {
     setSidebarCollapsed(localStorage.getItem("sidebarCollapsed") === "1")
   }, [])
 
+  // Every citation opens the reader; passages without a page number (older
+  // documents) are shown on their own rather than silently doing nothing.
   const handleOpenSource = (source: Source) => {
-    if (!source.page) return
-    setReaderTarget({ docId: source.doc_id, page: source.page, highlight: source.text })
+    setReaderTarget({
+      docId: source.doc_id,
+      filename: source.filename,
+      page: source.page ?? null,
+      highlight: source.text,
+    })
   }
+
+  const readerPane = readerTarget && (
+    <DocumentReader
+      target={readerTarget}
+      onClose={() => setReaderTarget(null)}
+      onNavigate={(page) =>
+        setReaderTarget((current) => (current ? { ...current, page, highlight: undefined } : current))
+      }
+    />
+  )
 
   const applySidebarCollapsed = (next: boolean) => {
     setSidebarCollapsed(next)
@@ -300,23 +319,22 @@ export default function Dashboard() {
                 />
               </div>
 
-              {readerTarget && (
-                <div className="hidden min-h-0 w-[46%] min-w-0 max-w-[620px] md:flex">
-                  <DocumentReader
-                    target={readerTarget}
-                    onClose={() => setReaderTarget(null)}
-                    onNavigate={(page) =>
-                      setReaderTarget((current) =>
-                        current ? { ...current, page, highlight: undefined } : current
-                      )
-                    }
-                  />
-                </div>
+              {isWide && readerPane && (
+                <div className="flex min-h-0 w-[46%] min-w-0 max-w-[620px]">{readerPane}</div>
               )}
             </div>
           )}
         </main>
       </div>
+
+      {/* Below md there's no room beside the chat, so the reader slides up over it. */}
+      <Sheet open={!isWide && readerTarget !== null} onOpenChange={(open) => !open && setReaderTarget(null)}>
+        <SheetContent side="bottom" showClose={false} className="h-[85dvh] gap-0 overflow-hidden rounded-t-2xl p-0">
+          <SheetTitle className="sr-only">Evidence</SheetTitle>
+          <SheetDescription className="sr-only">The document text behind the cited passage.</SheetDescription>
+          {!isWide && readerPane}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

@@ -180,7 +180,7 @@ export default function DashboardSidebar({
           title="Expand sidebar"
           className="group relative flex size-9 items-center justify-center rounded-xl transition-colors hover:bg-sidebar-accent/60"
         >
-          <BrandMark className="size-9 rounded-xl text-sm transition-opacity group-hover:opacity-0" />
+          <BrandMark className="size-9 transition-opacity group-hover:opacity-0" />
           <PanelLeft className="absolute size-4 opacity-0 transition-opacity group-hover:opacity-100" />
           <span className="sr-only">Expand sidebar</span>
         </button>
