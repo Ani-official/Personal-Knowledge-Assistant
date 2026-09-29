@@ -32,12 +32,46 @@ MIN_CONTEXT_SCORE = 0.35
 
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
+    """
+    Split into roughly `chunk_size` character pieces on word boundaries.
+
+    Cutting by raw character count left chunks starting and ending mid-word
+    ("rious stages like..."), which is quoted back to the user as the evidence
+    behind an answer. Whitespace is normalised on the way through; the reader
+    matches passages whitespace-insensitively, so nothing downstream depends on
+    the original spacing.
+    """
+    words = text.split()
+    if not words:
+        return []
+
     chunks: List[str] = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunks.append(text[start:end])
-        start += chunk_size - overlap
+    current: List[str] = []
+    length = 0
+
+    for word in words:
+        extra = len(word) + (1 if current else 0)
+        if current and length + extra > chunk_size:
+            chunks.append(" ".join(current))
+
+            # Carry back about `overlap` characters of trailing context so a
+            # sentence spanning a boundary is still retrievable from either side.
+            tail: List[str] = []
+            carried = 0
+            for previous in reversed(current):
+                if carried + len(previous) + 1 > overlap:
+                    break
+                tail.insert(0, previous)
+                carried += len(previous) + 1
+
+            current, length = tail, carried
+            extra = len(word) + (1 if current else 0)
+
+        current.append(word)
+        length += extra
+
+    if current:
+        chunks.append(" ".join(current))
     return chunks
 
 

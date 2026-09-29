@@ -5,6 +5,15 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
+import { apiFetch, apiJson } from "@/lib/api"
+import { reportError, showErrorDialog } from "@/lib/error-dialog"
+import { getToken } from "@/lib/session"
+
+const API_KEY_REQUIRED = {
+  title: "API key required",
+  message: "Paste your OpenRouter API key first.",
+  code: "API_KEY_REQUIRED",
+}
 import { Key, ExternalLink, Eye, EyeOff, Check, AlertCircle } from "lucide-react"
 
 export type KeyStatus = "none" | "local" | "linked"
@@ -14,18 +23,13 @@ export type KeyStatus = "none" | "local" | "linked"
  * badge and this panel never disagree.
  */
 export async function readApiKeyStatus(apiBase: string): Promise<KeyStatus> {
-  const token = localStorage.getItem("token")
-  if (token) {
+  if (getToken()) {
     try {
-      const res = await fetch(`${apiBase}/api-key/status`, {
-        headers: { Authorization: `Bearer ${token}` },
-        credentials: "include",
-      })
-      if (res.ok) {
-        const data = await res.json()
-        if (data.has_key) return "linked"
-      }
+      const data = await apiJson<{ has_key?: boolean }>("/api-key/status")
+      if (data.has_key) return "linked"
     } catch (err) {
+      // Best effort: fall back to the browser-stored key. Session-ending
+      // errors have already been routed to the session-expired screen.
       console.error("Failed to check key status:", err)
     }
   }
@@ -67,12 +71,16 @@ export function APIKeyManager({
 
   const handleLocalSave = () => {
     if (!apiKey.trim()) {
-      toast.error("API key is required")
+      showErrorDialog(API_KEY_REQUIRED)
       return
     }
 
     if (!apiKey.startsWith("sk-")) {
-      toast.error("Invalid API key format. Should start with 'sk-'")
+      showErrorDialog({
+        title: "Invalid API key",
+        message: "OpenRouter API keys start with “sk-”. Check the key and try again.",
+        code: "API_KEY_INVALID_FORMAT",
+      })
       return
     }
 
@@ -83,44 +91,23 @@ export function APIKeyManager({
 
   const handleLinkToAccount = async () => {
     if (!apiKey.trim()) {
-      toast.error("API key is required")
+      showErrorDialog(API_KEY_REQUIRED)
       return
     }
 
     setLoading(true)
     try {
-      const token = localStorage.getItem("token") || ""
-      const authType = localStorage.getItem("auth_type")
-
-      const res = await fetch(`${apiBase}/api-key/`, {
+      await apiFetch("/api-key/", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authType === "email" && token
-            ? { Authorization: `Bearer ${token}` }
-            : {}),
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ api_key: apiKey }),
-        credentials: "include",
       })
-
-      if (res.ok) {
-        toast.success("API key linked successfully")
-        setLinked(true)
-        localStorage.setItem("knowai-key-linked", "true")
-        setKeyStatus("linked")
-      } else {
-        const data = await res.json()
-        const message = Array.isArray(data.detail)
-          ? data.detail.map((e: any) => e.msg).join(", ")
-          : data.detail || "Failed to link API key"
-
-        toast.error(message)
-
-      }
+      toast.success("API key linked successfully")
+      setLinked(true)
+      localStorage.setItem("knowai-key-linked", "true")
+      setKeyStatus("linked")
     } catch (err) {
-      console.error("API link error:", err)
-      toast.error("An error occurred while linking the API key")
+      reportError(err, { title: "Couldn't link API key", message: "Your API key couldn't be linked. Please try again." })
     } finally {
       setLoading(false)
     }

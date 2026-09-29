@@ -1,5 +1,6 @@
 "use client"
 
+import { apiBase, clearSession } from "@/lib/session"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
@@ -48,19 +49,13 @@ export default function UserMenu({
   const isDark = theme === "dark"
 
   const handleLogout = async () => {
-    const authType = localStorage.getItem("auth_type")
-    if (authType === "google") {
-      try {
-        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/logout`, {
-          method: "GET",
-          credentials: "include",
-        })
-      } catch {}
+    // Clear locally first so signing out works even when the API is unreachable.
+    clearSession()
+    try {
+      await fetch(`${apiBase()}/auth/logout`, { method: "POST", credentials: "include" })
+    } catch {
+      // Best effort: only clears a legacy cookie.
     }
-    localStorage.removeItem("token")
-    localStorage.removeItem("auth_type")
-    localStorage.removeItem("activeDocId")
-    localStorage.removeItem("activeConversationId")
     router.push("/")
   }
 

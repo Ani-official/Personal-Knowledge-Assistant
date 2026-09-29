@@ -1,6 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { apiJson } from "@/lib/api"
+import { toApiError } from "@/lib/api-errors"
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -68,8 +70,15 @@ function splitAroundHighlight(pageText: string, passage?: string) {
     const at = flat.indexOf(candidate)
     if (at === -1) continue
 
-    const from = origin[at]
-    const to = origin[at + candidate.length - 1] + 1
+    let from = origin[at]
+    let to = origin[at + candidate.length - 1] + 1
+
+    // A chunk can begin or end mid-word, which would highlight "oc" out of
+    // "occupations". Widen to the whole word at each edge.
+    const isWordChar = (char: string | undefined) => !!char && /[\p{L}\p{N}]/u.test(char)
+    while (from > 0 && isWordChar(pageText[from - 1]) && isWordChar(pageText[from])) from -= 1
+    while (to < pageText.length && isWordChar(pageText[to]) && isWordChar(pageText[to - 1])) to += 1
+
     return {
       before: pageText.slice(0, from),
       match: pageText.slice(from, to),
@@ -77,6 +86,45 @@ function splitAroundHighlight(pageText: string, passage?: string) {
     }
   }
   return null
+}
+
+/**
+ * Paint the cited passage one line at a time.
+ *
+ * A single span stretched across the whole passage paints its background over
+ * the blank lines between paragraphs too, which reads as a stack of
+ * disconnected blocks. Highlighting each non-empty line separately keeps the
+ * blank lines clear.
+ */
+function HighlightedPassage({
+  text,
+  firstLineRef,
+}: {
+  text: string
+  firstLineRef: React.RefObject<HTMLElement | null>
+}) {
+  const lines = text.split("\n")
+  const firstFilled = lines.findIndex((line) => line.trim())
+
+  return (
+    <>
+      {lines.map((line, index) => (
+        <Fragment key={index}>
+          {line.trim() ? (
+            <mark
+              ref={index === firstFilled ? firstLineRef : undefined}
+              className="rounded bg-primary/15 font-medium text-primary"
+            >
+              {line}
+            </mark>
+          ) : (
+            line
+          )}
+          {index < lines.length - 1 ? "\n" : null}
+        </Fragment>
+      ))}
+    </>
+  )
 }
 
 export default function DocumentReader({
@@ -92,30 +140,18 @@ export default function DocumentReader({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
-  const markRef = useRef<HTMLSpanElement>(null)
+  const markRef = useRef<HTMLElement>(null)
 
   const fetchPage = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const token = localStorage.getItem("token")
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/documents/${target.docId}/pages/${target.page}`,
-        {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          credentials: token ? "omit" : "include",
-        }
-      )
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        setPage(null)
-        setError(body?.detail ?? "Could not load this page.")
-        return
-      }
-      setPage(await res.json())
-    } catch {
+      setPage(await apiJson(`/documents/${target.docId}/pages/${target.page}`))
+    } catch (err) {
       setPage(null)
-      setError("Could not load this page.")
+      const apiError = toApiError(err)
+      // A session-ending error has already redirected; show nothing extra.
+      if (!apiError.isSessionEnded) setError(apiError.message || "Could not load this page.")
     } finally {
       setLoading(false)
     }
@@ -207,9 +243,7 @@ export default function DocumentReader({
             {segments ? (
               <>
                 {segments.before}
-                <span ref={markRef} className="rounded bg-primary/15 font-medium text-primary">
-                  {segments.match}
-                </span>
+                <HighlightedPassage text={segments.match} firstLineRef={markRef} />
                 {segments.after}
               </>
             ) : (

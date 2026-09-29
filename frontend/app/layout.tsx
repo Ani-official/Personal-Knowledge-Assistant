@@ -4,6 +4,7 @@ import type { Metadata } from "next"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Analytics } from "@vercel/analytics/next"
 import { Toaster } from "sonner"
+import { ErrorDialogHost } from "@/components/ui/error-dialog"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -54,6 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           {children}
           <Toaster richColors position="top-right" />
+          <ErrorDialogHost />
           <Analytics />
         </ThemeProvider>
       </body>

@@ -7,13 +7,13 @@ import DashboardSidebar from "@/components/dashboard/sidebar"
 import type { ConversationSummary, DocumentItem, Source } from "@/components/dashboard/types"
 import DocumentReader, { type ReaderTarget } from "@/components/dashboard/document-reader"
 import { useAuth } from "@/lib/useAuth"
-import AuthDialog from "@/components/ui/auth-dialog"
 import { Bot, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import UploadFAB from "@/components/ui/upload-fab"
 import { Button } from "@/components/ui/button"
 import OnboardingTour from "@/components/dashboard/onboarding-tour"
-import { toast } from "sonner"
+import { apiFetch, apiJson } from "@/lib/api"
+import { reportError } from "@/lib/error-dialog"
 
 export default function Dashboard() {
   const [docId, setDocId] = useState<string | null>(null)
@@ -26,40 +26,16 @@ export default function Dashboard() {
   const [apiKeyOpen, setApiKeyOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [readerTarget, setReaderTarget] = useState<ReaderTarget | null>(null)
-  const { status, email } = useAuth()
-
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem("token")
-    return token ? { Authorization: `Bearer ${token}` } : undefined
-  }
-
-  /** The server's own reason for a failure, when it gave one. */
-  const failureReason = async (res: Response, fallback: string) => {
-    try {
-      const body = await res.json()
-      const detail = body?.detail
-      if (typeof detail === "string") return detail
-      if (Array.isArray(detail)) return detail.map((item) => item?.msg ?? "").join(", ") || fallback
-    } catch {
-      // no JSON body; fall through
-    }
-    return fallback
-  }
+  const { status, email } = useAuth({ required: true })
 
   const fetchDocuments = async () => {
     setDocumentsLoading(true)
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/documents/`, {
-        headers: getAuthHeaders(),
-        credentials: localStorage.getItem("token") ? "omit" : "include",
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setDocuments(data)
-        return data as DocumentItem[]
-      }
+      const data = await apiJson<DocumentItem[]>("/documents/")
+      setDocuments(data)
+      return data
     } catch (err) {
-      console.error("Error fetching documents:", err)
+      reportError(err, { title: "Couldn't load documents", message: "Your documents couldn't be loaded. Refresh to try again." })
     } finally {
       setDocumentsLoading(false)
     }
@@ -69,17 +45,14 @@ export default function Dashboard() {
   const fetchConversations = async () => {
     setConversationsLoading(true)
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/conversations/`, {
-        headers: getAuthHeaders(),
-        credentials: localStorage.getItem("token") ? "omit" : "include",
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setConversations(data)
-        return data as ConversationSummary[]
-      }
+      const data = await apiJson<ConversationSummary[]>("/conversations/")
+      setConversations(data)
+      return data
     } catch (err) {
-      console.error("Error fetching conversations:", err)
+      reportError(err, {
+        title: "Couldn't load conversations",
+        message: "Your conversations couldn't be loaded. Refresh to try again.",
+      })
     } finally {
       setConversationsLoading(false)
     }
@@ -139,12 +112,7 @@ export default function Dashboard() {
 
   const handleDeleteDocument = async (deletedId: string) => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/documents/${deletedId}`, {
-        method: "DELETE",
-        headers: getAuthHeaders(),
-        credentials: localStorage.getItem("token") ? "omit" : "include",
-      })
-      if (!res.ok) throw new Error(await failureReason(res, "Failed to delete document"))
+      await apiFetch(`/documents/${deletedId}`, { method: "DELETE" })
 
       setDocuments((prev) => prev.filter((doc) => doc.doc_id !== deletedId))
       if (activeConversationId === null && docId === deletedId) {
@@ -152,38 +120,26 @@ export default function Dashboard() {
       }
       await fetchConversations()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete document")
+      reportError(err, { title: "Couldn't delete document", message: "The document couldn't be deleted. Please try again." })
     }
   }
 
   const handleRenameConversation = async (conversationId: string, title: string) => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/conversations/${conversationId}`, {
+      const updated = await apiJson<ConversationSummary>(`/conversations/${conversationId}`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(getAuthHeaders() ?? {}),
-        },
-        credentials: localStorage.getItem("token") ? "omit" : "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title }),
       })
-      if (!res.ok) throw new Error(await failureReason(res, "Failed to rename conversation"))
-
-      const updated = (await res.json()) as ConversationSummary
       setConversations((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to rename conversation")
+      reportError(err, { title: "Couldn't rename conversation", message: "The conversation couldn't be renamed. Please try again." })
     }
   }
 
   const handleDeleteConversation = async (conversationId: string) => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/conversations/${conversationId}`, {
-        method: "DELETE",
-        headers: getAuthHeaders(),
-        credentials: localStorage.getItem("token") ? "omit" : "include",
-      })
-      if (!res.ok) throw new Error(await failureReason(res, "Failed to delete conversation"))
+      await apiFetch(`/conversations/${conversationId}`, { method: "DELETE" })
 
       setConversations((prev) => prev.filter((item) => item.id !== conversationId))
       if (activeConversationId === conversationId) {
@@ -191,7 +147,7 @@ export default function Dashboard() {
         setActiveConversationId(null)
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete conversation")
+      reportError(err, { title: "Couldn't delete conversation", message: "The conversation couldn't be deleted. Please try again." })
     }
   }
 
@@ -239,15 +195,9 @@ export default function Dashboard() {
     void initialize()
   }, [status])
 
-  if (status === "loading") return null
-
-  if (status === "unauthenticated") {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-        <AuthDialog mode="signin" openByDefault />
-      </div>
-    )
-  }
+  // Signed-out visitors are sent to /login and ended sessions to the
+  // session-expired screen by useAuth; render nothing while that happens.
+  if (status !== "authenticated") return null
 
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId) ?? null
 
