@@ -12,3 +12,6 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=True)
     subscription = Column(Enum(SubscriptionLevel), default=SubscriptionLevel.free)
+    # Embedded in every token as "ver". Incrementing it (on logout) invalidates
+    # every token issued before, on every device.
+    token_version = Column(Integer, nullable=False, default=0, server_default="0")

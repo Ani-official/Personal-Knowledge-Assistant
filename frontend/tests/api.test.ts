@@ -94,7 +94,7 @@ describe("apiFetch", () => {
     expect(new Headers(init.headers).get("Content-Type")).toBe("application/json")
   })
 
-  it.each(["AUTH_TOKEN_EXPIRED", "AUTH_TOKEN_INVALID", "AUTH_USER_NOT_FOUND", "AUTH_TOKEN_MISSING"])(
+  it.each(["AUTH_TOKEN_EXPIRED", "AUTH_TOKEN_INVALID", "AUTH_USER_NOT_FOUND", "AUTH_TOKEN_MISSING", "AUTH_SESSION_REVOKED"])(
     "a 401 %s ends the session and shows the session-expired screen",
     async (code) => {
       const go = vi.spyOn(navigation, "go").mockImplementation(() => {})

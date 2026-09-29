@@ -4,6 +4,7 @@ from urllib.parse import urlencode
 from authlib.integrations.base_client.errors import OAuthError
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import RedirectResponse
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,7 +45,10 @@ oauth.register(
 
 
 def session_response(user: User, auth_time=None) -> AuthResponse:
-    token = create_access_token({"sub": user.email, "uid": user.id}, auth_time=auth_time)
+    token = create_access_token(
+        {"sub": user.email, "uid": user.id, "ver": user.token_version or 0},
+        auth_time=auth_time,
+    )
     return AuthResponse(
         access_token=token,
         expires_at=token_expiry(token).isoformat(),
@@ -191,9 +195,24 @@ async def get_me(user: User = Depends(get_current_user_record)):
 # Logout
 # ----------------------
 @router.post("/logout", status_code=204)
-async def logout():
-    # Tokens are stateless, so the client discarding its copy is what ends the
-    # session; this clears any cookie a browser may still hold.
+async def logout(request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    End every session for this account, on every device, by bumping the
+    user's token_version. Always 204: logging out with a missing, expired or
+    already-revoked token has nothing left to end, and must not error.
+    """
+    try:
+        user = await get_current_user_record(request, db)
+    except AppError:
+        user = None
+
+    if user is not None:
+        # Increment in SQL so two concurrent logouts can't both write the same value.
+        await db.execute(
+            update(User).where(User.id == user.id).values(token_version=User.token_version + 1)
+        )
+        await db.commit()
+
     response = Response(status_code=204)
     response.delete_cookie("token")
     response.delete_cookie("auth_type")

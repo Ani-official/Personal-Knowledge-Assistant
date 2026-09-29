@@ -136,6 +136,27 @@ export function isSafeNext(path: string | null | undefined): path is string {
   return !!path && path.startsWith("/") && !path.startsWith("//") && !path.includes("\\")
 }
 
+/**
+ * Sign out everywhere. The local session is cleared first so signing out works
+ * even offline; the API call (with the token captured beforehand) then revokes
+ * every token for this account on the server.
+ */
+export async function signOut(): Promise<void> {
+  const token = getToken()
+  clearSession()
+  if (!token) return
+  try {
+    await fetch(`${apiBase()}/auth/logout`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
+      keepalive: true,
+    })
+  } catch {
+    // Offline: this device is signed out; other devices end at token expiry.
+  }
+}
+
 // --------------------------------------------------------------------------
 // Refresh
 // --------------------------------------------------------------------------

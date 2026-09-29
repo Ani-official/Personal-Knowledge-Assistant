@@ -566,3 +566,126 @@ class TestErrorEnvelope:
         assert res.status_code == 500
         assert error_code(res) == "INTERNAL_ERROR"
         assert "hunter2" not in res.text
+
+
+# --------------------------------------------------------------------------
+# Server-side logout (token_version revocation)
+# --------------------------------------------------------------------------
+async def sign_in(client, email="u@example.com", password=PASSWORD) -> str:
+    res = await client.post("/auth/login", json={"email": email, "password": password})
+    assert res.status_code == 200, res.text
+    return res.json()["access_token"]
+
+
+class TestServerSideLogout:
+    async def test_tokens_carry_the_version(self, client, make_user):
+        await make_user("u@example.com")
+        claims = jwt.get_unverified_claims(await sign_in(client))
+        assert claims["ver"] == 0
+
+    async def test_logout_revokes_the_token(self, client, make_user):
+        await make_user("u@example.com")
+        token = await sign_in(client)
+
+        res = await client.post("/auth/logout", headers=bearer(token))
+        assert res.status_code == 204
+
+        me = await client.get("/auth/me", headers=bearer(token))
+        assert me.status_code == 401
+        assert error_code(me) == "AUTH_SESSION_REVOKED"
+
+    async def test_logout_ends_sessions_on_every_device(self, client, make_user):
+        await make_user("u@example.com")
+        laptop = await sign_in(client)
+        phone = await sign_in(client)
+
+        await client.post("/auth/logout", headers=bearer(laptop))
+
+        for token in (laptop, phone):
+            res = await client.get("/documents/", headers=bearer(token))
+            assert res.status_code == 401
+            assert error_code(res) == "AUTH_SESSION_REVOKED"
+
+    async def test_revoked_token_cannot_be_refreshed(self, client, make_user):
+        await make_user("u@example.com")
+        token = await sign_in(client)
+        await client.post("/auth/logout", headers=bearer(token))
+        res = await client.post("/auth/refresh", headers=bearer(token))
+        assert res.status_code == 401
+        assert error_code(res) == "AUTH_SESSION_REVOKED"
+
+    async def test_signing_in_again_after_logout_works(self, client, make_user):
+        await make_user("u@example.com")
+        await client.post("/auth/logout", headers=bearer(await sign_in(client)))
+
+        fresh = await sign_in(client)
+        assert jwt.get_unverified_claims(fresh)["ver"] == 1
+        assert (await client.get("/auth/me", headers=bearer(fresh))).status_code == 200
+
+    async def test_refresh_keeps_the_version(self, client, make_user):
+        await make_user("u@example.com")
+        await client.post("/auth/logout", headers=bearer(await sign_in(client)))
+        token = await sign_in(client)
+        res = await client.post("/auth/refresh", headers=bearer(token))
+        assert jwt.get_unverified_claims(res.json()["access_token"])["ver"] == 1
+
+    async def test_logging_out_twice_is_harmless(self, client, make_user, db_sessionmaker):
+        user = await make_user("u@example.com")
+        token = await sign_in(client)
+        assert (await client.post("/auth/logout", headers=bearer(token))).status_code == 204
+        # Second call carries a now-revoked token: still 204, and no further bump.
+        assert (await client.post("/auth/logout", headers=bearer(token))).status_code == 204
+        async with db_sessionmaker() as session:
+            assert (await session.get(User, user.id)).token_version == 1
+
+    @pytest.mark.parametrize(
+        "headers",
+        [
+            {},
+            {"Authorization": "Bearer garbage"},
+            {"Authorization": f"Bearer {mint({'sub': 'u@example.com', 'exp': 1})}"},
+        ],
+        ids=["no-token", "garbage-token", "expired-token"],
+    )
+    async def test_logout_without_a_usable_token_still_succeeds(self, client, make_user, db_sessionmaker, headers):
+        user = await make_user("u@example.com")
+        res = await client.post("/auth/logout", headers=headers)
+        assert res.status_code == 204
+        async with db_sessionmaker() as session:
+            assert (await session.get(User, user.id)).token_version == 0
+
+    async def test_logout_does_not_affect_other_accounts(self, client, make_user):
+        await make_user("u@example.com")
+        await make_user("other@example.com")
+        mine = await sign_in(client)
+        theirs = await sign_in(client, "other@example.com")
+        await client.post("/auth/logout", headers=bearer(mine))
+        assert (await client.get("/auth/me", headers=bearer(theirs))).status_code == 200
+
+    async def test_legacy_token_without_ver_works_until_logout(self, client, make_user):
+        await make_user("u@example.com")
+        legacy = mint({"sub": "u@example.com", "exp": ts(NOW() + timedelta(days=3))})
+        assert (await client.get("/auth/me", headers=bearer(legacy))).status_code == 200
+
+        await client.post("/auth/logout", headers=bearer(legacy))
+        res = await client.get("/auth/me", headers=bearer(legacy))
+        assert res.status_code == 401
+        assert error_code(res) == "AUTH_SESSION_REVOKED"
+
+    @pytest.mark.parametrize("ver", ["0", None, 1.0, [0]])
+    async def test_malformed_version_claim_is_rejected(self, client, make_user, ver):
+        await make_user("u@example.com")
+        token = mint({"sub": "u@example.com", "ver": ver, "exp": ts(NOW() + timedelta(hours=1))})
+        res = await client.get("/auth/me", headers=bearer(token))
+        assert res.status_code == 401
+        assert error_code(res) == "AUTH_SESSION_REVOKED"
+
+    async def test_google_sign_in_carries_the_current_version(self, client, google, make_user):
+        await make_user("g@example.com", password=None)
+        google["token"] = {"userinfo": {"email": "g@example.com", "email_verified": True}}
+        first = fragment_of(await client.get("/auth/google/callback?code=a"))["token"]
+        await client.post("/auth/logout", headers=bearer(first))
+
+        second = fragment_of(await client.get("/auth/google/callback?code=b"))["token"]
+        assert jwt.get_unverified_claims(second)["ver"] == 1
+        assert (await client.get("/auth/me", headers=bearer(second))).status_code == 200
